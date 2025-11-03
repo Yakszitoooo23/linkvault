@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String   @id @default(cuid())
+  whopUserId String   @unique
+  role       String   @default("buyer")
+  createdAt  DateTime @default(now())
+  products   Product[]
+  purchases  Purchase[]
+}
+
+model Product {
+  id          String    @id @default(cuid())
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id])
+  title       String
+  description String?
+  priceCents  Int
+  currency    String    @default("USD")
+  fileKey     String
+  imageKey    String?   // Legacy image field
+  imageUrl    String?   @db.VarChar(1024)
+  whopPlanId  String?   @db.VarChar(191)
+  version     Int       @default(1)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  purchases   Purchase[]
+}
+
+model Purchase {
+  id            String   @id @default(cuid())
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id])
+  buyerId       String
+  buyer         User     @relation(fields: [buyerId], references: [id])
+  whopPaymentId String   @unique
+  status        String   @default("paid")
+  amountCents   Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  downloads     Int      @default(0)
+}

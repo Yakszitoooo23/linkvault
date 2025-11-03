@@ -1,0 +1,29 @@
+{
+  "name": "whop-digisell-starter",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && prisma migrate deploy && next build",
+    "start": "next start",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev -n init",
+    "prisma:migrate:add_image_url": "prisma migrate dev -n add_image_url"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.670.0",
+    "@aws-sdk/s3-request-presigner": "^3.670.0",
+    "@prisma/client": "^5.22.0",
+    "@whop/api": "latest",
+    "next": "^14.2.33",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "24.9.1",
+    "@types/react": "19.2.2",
+    "prisma": "^5.22.0",
+    "typescript": "^5.6.3"
+  }
+}
