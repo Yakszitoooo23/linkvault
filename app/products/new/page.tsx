@@ -193,6 +193,10 @@ export default function CreateProductPage() {
 
           const imageData = await imageResponse.json();
           finalImageUrl = imageData.url;
+          // Store fileKey so images can be retrieved via /api/images
+          if (imageData.fileKey) {
+            imageKey = imageData.fileKey;
+          }
         } catch (imageError) {
           console.error('Error uploading image:', imageError);
           // Don't block product creation if image upload fails

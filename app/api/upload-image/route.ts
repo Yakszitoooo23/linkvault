@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import { join } from "path";
 import { safe } from "@/lib/sanitize";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { env } from "@/lib/env";
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,7 +16,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "File is required" }, { status: 400 });
     }
 
-    // Check for Supabase environment variables (preferred for production)
+    // Check for Supabase environment variables (optional)
     const hasSupabaseConfig = 
       process.env.SUPABASE_URL && 
       process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -24,15 +26,26 @@ export async function POST(req: NextRequest) {
       return await uploadToSupabase(file, fileName || "image", contentType);
     }
 
+    // Check for S3 configuration (preferred if Supabase not available)
+    const hasS3Config = 
+      env.FILE_BUCKET && 
+      env.FILE_REGION && 
+      env.FILE_ACCESS_KEY_ID && 
+      env.FILE_SECRET_ACCESS_KEY;
+
+    if (hasS3Config) {
+      return await uploadToS3(file, fileName || "image", contentType);
+    }
+
     // Only allow local storage in development
     if (process.env.NODE_ENV === "development") {
       return await uploadToLocal(file, fileName || "image");
     }
 
-    // Production without Supabase config is an error
+    // Production without storage config is an error
     return NextResponse.json(
       { 
-        error: "Image upload not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables." 
+        error: "Image upload not configured. Please set S3 environment variables (FILE_BUCKET, FILE_REGION, FILE_ACCESS_KEY_ID, FILE_SECRET_ACCESS_KEY) or Supabase variables (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)." 
       },
       { status: 500 }
     );
@@ -119,6 +132,51 @@ async function uploadToSupabase(
   }
 }
 
+async function uploadToS3(
+  file: File,
+  fileName: string,
+  contentType: string | null
+): Promise<NextResponse> {
+  try {
+    const s3Client = new S3Client({
+      region: env.FILE_REGION!,
+      credentials: {
+        accessKeyId: env.FILE_ACCESS_KEY_ID!,
+        secretAccessKey: env.FILE_SECRET_ACCESS_KEY!,
+      },
+    });
+
+    // Generate safe filename
+    const ext = fileName.split(".").pop() || "jpg";
+    const safeFileName = safe(fileName);
+    const uniqueId = crypto.randomUUID();
+    const fileKey = `images/${uniqueId}-${safeFileName}.${ext}`;
+
+    // Convert file to buffer
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Upload to S3
+    const command = new PutObjectCommand({
+      Bucket: env.FILE_BUCKET!,
+      Key: fileKey,
+      Body: buffer,
+      ContentType: contentType || file.type || `image/${ext}`,
+    });
+
+    await s3Client.send(command);
+
+    // Return the fileKey (will be used to generate presigned URLs via /api/images)
+    return NextResponse.json({
+      url: `/api/images?fileKey=${encodeURIComponent(fileKey)}`,
+      fileKey: fileKey,
+    });
+  } catch (e: any) {
+    console.error("S3 upload error:", e);
+    throw e;
+  }
+}
+
 async function uploadToLocal(
   file: File,
   fileName: string
@@ -127,7 +185,7 @@ async function uploadToLocal(
   // This function should only be used in development mode
   if (process.env.NODE_ENV === "production") {
     throw new Error(
-      "Local file storage is not allowed in production. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for image storage."
+      "Local file storage is not allowed in production. Please configure S3 or Supabase for image storage."
     );
   }
 

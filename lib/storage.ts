@@ -2,20 +2,33 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "./env";
 
-const s3 = new S3Client({
-  region: env.FILE_REGION,
-  credentials: {
-    accessKeyId: env.FILE_ACCESS_KEY_ID,
-    secretAccessKey: env.FILE_SECRET_ACCESS_KEY,
-  },
-});
+// Only create S3 client if S3 is configured
+let s3Client: S3Client | null = null;
+
+function getS3Client(): S3Client {
+  if (!s3Client) {
+    if (!env.FILE_BUCKET || !env.FILE_REGION || !env.FILE_ACCESS_KEY_ID || !env.FILE_SECRET_ACCESS_KEY) {
+      throw new Error("S3 storage not configured. Missing required environment variables.");
+    }
+    s3Client = new S3Client({
+      region: env.FILE_REGION,
+      credentials: {
+        accessKeyId: env.FILE_ACCESS_KEY_ID,
+        secretAccessKey: env.FILE_SECRET_ACCESS_KEY,
+      },
+    });
+  }
+  return s3Client;
+}
 
 export async function getDownloadUrl(fileKey: string, ttlSec = 600) {
-  const cmd = new GetObjectCommand({ Bucket: env.FILE_BUCKET, Key: fileKey });
+  const s3 = getS3Client();
+  const cmd = new GetObjectCommand({ Bucket: env.FILE_BUCKET!, Key: fileKey });
   return getSignedUrl(s3, cmd, { expiresIn: ttlSec });
 }
 
 export async function getUploadUrl(fileKey: string, ttlSec = 600) {
-  const cmd = new PutObjectCommand({ Bucket: env.FILE_BUCKET, Key: fileKey });
+  const s3 = getS3Client();
+  const cmd = new PutObjectCommand({ Bucket: env.FILE_BUCKET!, Key: fileKey });
   return getSignedUrl(s3, cmd, { expiresIn: ttlSec });
 }
