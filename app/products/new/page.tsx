@@ -14,7 +14,6 @@ interface FormData {
   name: string;
   price: string;
   description: string;
-  whopPlanId: string;
 }
 
 interface FormErrors {
@@ -36,7 +35,6 @@ export default function CreateProductPage() {
     name: '',
     price: '',
     description: '',
-    whopPlanId: '',
   });
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -215,7 +213,6 @@ export default function CreateProductPage() {
           fileKey,
           imageKey,
           imageUrl: finalImageUrl,
-          whopPlanId: formData.whopPlanId.trim() || undefined,
         }),
       });
 
@@ -232,17 +229,11 @@ export default function CreateProductPage() {
         type: 'success',
       });
 
-      // Clear form
-      setFormData({ name: '', price: '', description: '', whopPlanId: '' });
-      setImageFile(null);
-      setImagePreview(null);
-      setDigitalFile(null);
-      setErrors({});
-
-      // Navigate back to homepage after a short delay
+      // Navigate back to homepage immediately - router.push will trigger a refresh
       setTimeout(() => {
         router.push('/');
-      }, 1500);
+        router.refresh(); // Force refresh to show new product
+      }, 1000);
 
     } catch (error) {
       console.error('Error creating product:', error);
@@ -392,24 +383,6 @@ export default function CreateProductPage() {
                     {errors.digitalFile}
                   </div>
                 )}
-              </div>
-
-              <div className="form-section">
-                <Label htmlFor="whopPlanId">
-                  Whop Plan ID (optional)
-                </Label>
-                <Input
-                  id="whopPlanId"
-                  name="whopPlanId"
-                  type="text"
-                  placeholder="Enter Whop Plan ID"
-                  value={formData.whopPlanId}
-                  onChange={handleInputChange}
-                  aria-describedby="whopPlanId-help"
-                />
-                <div id="whopPlanId-help" className="form-help">
-                  Required for checkout. Get this from your Whop plan settings.
-                </div>
               </div>
             </div>
           </div>

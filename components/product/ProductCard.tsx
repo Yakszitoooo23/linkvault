@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '../ui/Button';
 import { LinkIcon } from '../ui/Icon';
 
@@ -15,6 +16,7 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ id, title, description, priceCents, imageKey, imageUrl, createdAt }: ProductCardProps) {
+  const router = useRouter();
   const [isDeleting, setIsDeleting] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
@@ -51,14 +53,15 @@ export function ProductCard({ id, title, description, priceCents, imageKey, imag
       });
 
       if (response.ok) {
-        // Refresh the page to update the product list
-        window.location.reload();
+        // Refresh the router to update the product list
+        router.refresh();
       } else {
-        alert('Failed to delete product');
+        const errorData = await response.json().catch(() => ({}));
+        alert(errorData.error || 'Failed to delete product');
       }
     } catch (error) {
       console.error('Error deleting product:', error);
-      alert('Failed to delete product');
+      alert('Failed to delete product. Please try again.');
     } finally {
       setIsDeleting(false);
     }

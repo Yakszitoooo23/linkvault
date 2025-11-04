@@ -5,6 +5,10 @@ import { ProductCard } from "@/components/product/ProductCard";
 import { EmptyState } from "@/components/product/EmptyState";
 import { ExperienceClient } from "./ExperienceClient";
 
+// Force dynamic rendering so new products show immediately
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 interface Product {
   id: string;
   title: string;
