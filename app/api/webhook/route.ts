@@ -5,7 +5,7 @@ import { env } from "@/lib/env";
 
 const validator = env.WHOP_WEBHOOK_SECRET
   ? makeWebhookValidator({
-      secret: env.WHOP_WEBHOOK_SECRET,
+      webhookSecret: env.WHOP_WEBHOOK_SECRET,
     })
   : null;
 
@@ -14,12 +14,11 @@ export async function POST(req: NextRequest) {
     return new NextResponse("Webhook secret not configured", { status: 500 });
   }
 
-  const raw = await req.text();
-  const sig = req.headers.get("whop-signature") || "";
   let event: any;
 
   try {
-    event = validator.verify(raw, sig);
+    // makeWebhookValidator returns a function that validates the request
+    event = await validator(req);
   } catch {
     return new NextResponse("invalid signature", { status: 400 });
   }

@@ -26,7 +26,11 @@ async function getProduct(id: string): Promise<Product | null> {
         createdAt: true,
       },
     });
-    return product;
+    if (!product) return null;
+    return {
+      ...product,
+      createdAt: product.createdAt.toISOString(),
+    };
   } catch (error) {
     console.error("Error fetching product:", error);
     return null;

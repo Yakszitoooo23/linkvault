@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
-
+    
     return NextResponse.json({ checkoutUrl }, { status: 200 });
   } catch (e: any) {
     console.error("Checkout error:", e);

@@ -31,7 +31,10 @@ async function getProducts(): Promise<Product[]> {
         createdAt: true,
       },
     });
-    return products;
+    return products.map(product => ({
+      ...product,
+      createdAt: product.createdAt.toISOString(),
+    }));
   } catch (error) {
     console.error("Failed to fetch products:", error);
     return [];

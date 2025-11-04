@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (hasSupabaseConfig) {
+      // Only import Supabase at runtime if config is present
       return await uploadToSupabase(file, fileName || "image", contentType);
     }
 
@@ -50,14 +51,15 @@ async function uploadToSupabase(
   contentType: string | null
 ): Promise<NextResponse> {
   try {
-    // Dynamic import to avoid breaking dev if package not installed
-    let createClient;
-    try {
-      const supabaseModule = await import("@supabase/supabase-js");
-      createClient = supabaseModule.createClient;
-    } catch {
-      throw new Error("@supabase/supabase-js not installed. Run: npm install @supabase/supabase-js");
-    }
+    // Dynamic import to avoid breaking build if package not installed
+    // Use variable to prevent webpack from statically analyzing this import
+    const supabasePkg = "@supabase/supabase-js";
+    // @ts-ignore - Supabase is optional dependency
+    const supabaseModule = await import(supabasePkg).catch(() => {
+      throw new Error("@supabase/supabase-js not installed. Run: pnpm install @supabase/supabase-js");
+    });
+    
+    const createClient = supabaseModule.createClient;
     
     const supabaseUrl = process.env.SUPABASE_URL!;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 
+// Force dynamic rendering for OAuth callback
+export const dynamic = 'force-dynamic';
+
 /**
  * OAuth callback handler for Whop
  * Handles the OAuth code exchange and creates/updates the user session

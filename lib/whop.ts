@@ -1,5 +1,5 @@
-import { Whop } from "@whop/api";
-import { env } from "./env";
+// Whop SDK utilities
+// Note: We use direct API calls in checkout route instead of the SDK
+// This file is kept for potential future SDK usage
 
-// Only create Whop client if API key is available
-export const whop = env.WHOP_API_KEY ? new Whop({ token: env.WHOP_API_KEY }) : null;
+export {};
