@@ -13,7 +13,46 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "fileKey is required" }, { status: 400 });
     }
 
-    // In dev mode, return a placeholder image
+    // In dev mode, try to serve from local uploads first
+    if (process.env.NODE_ENV === "development" && !process.env.DEV_NO_STORAGE) {
+      try {
+        const { promises: fs } = await import("fs");
+        const { join } = await import("path");
+        const publicDir = join(process.cwd(), "public", "uploads");
+        const filePath = join(publicDir, fileKey);
+        
+        // Check if file exists locally
+        try {
+          await fs.access(filePath);
+          const fileBuffer = await fs.readFile(filePath);
+          
+          // Determine content type from extension
+          const ext = fileKey.split('.').pop()?.toLowerCase();
+          const contentTypeMap: Record<string, string> = {
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'webp': 'image/webp',
+            'svg': 'image/svg+xml',
+          };
+          const contentType = contentTypeMap[ext || ''] || 'image/jpeg';
+          
+          return new NextResponse(fileBuffer, {
+            headers: {
+              'Content-Type': contentType,
+              'Cache-Control': 'public, max-age=3600, must-revalidate',
+            },
+          });
+        } catch {
+          // File doesn't exist locally, fall through to S3
+        }
+      } catch {
+        // Error reading local file, fall through to S3
+      }
+    }
+
+    // In dev mode with DEV_NO_STORAGE, return a placeholder image
     if (process.env.DEV_NO_STORAGE === "true") {
       const svgPlaceholder = `<svg width="400" height="250" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
@@ -27,7 +66,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // In production, proxy the image through our API
+    // Try to fetch from S3
     try {
       const imageUrl = await getDownloadUrl(fileKey, 3600);
       

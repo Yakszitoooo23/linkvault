@@ -67,8 +67,25 @@ export function ProductCard({ id, title, description, priceCents, imageKey, imag
     }
   };
 
-  // Prioritize imageUrl over imageKey (legacy)
-  const displayImageUrl = imageUrl || (imageKey ? `/api/images?fileKey=${encodeURIComponent(imageKey)}` : null);
+  // Always use API route for images to handle both local and S3 storage
+  // If imageUrl is a local path (/uploads/...), convert it to use the API route
+  let displayImageUrl: string | null = null;
+  if (imageUrl) {
+    // If it's a local upload path, extract the filename and use the API route
+    if (imageUrl.startsWith('/uploads/')) {
+      const filename = imageUrl.replace('/uploads/', '');
+      displayImageUrl = `/api/images?fileKey=${encodeURIComponent(filename)}`;
+    } else if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      // External URL (e.g., Supabase), use directly
+      displayImageUrl = imageUrl;
+    } else {
+      // Relative path, assume it's from API
+      displayImageUrl = imageUrl;
+    }
+  } else if (imageKey) {
+    // Use imageKey with API route
+    displayImageUrl = `/api/images?fileKey=${encodeURIComponent(imageKey)}`;
+  }
   const shouldShowPlaceholder = !displayImageUrl || imageError;
 
   const handleCardClick = () => {
