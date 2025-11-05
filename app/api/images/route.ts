@@ -10,6 +10,8 @@ export async function GET(req: NextRequest) {
     const fileKey = searchParams.get('fileKey');
     const imageUrl = searchParams.get('imageUrl'); // Support direct imageUrl parameter
     
+    console.log(`[Images API] Request received - fileKey: ${fileKey}, imageUrl: ${imageUrl}`);
+    
     // If imageUrl is provided and it's a full URL (Supabase), redirect to it
     if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
       try {
@@ -39,12 +41,15 @@ export async function GET(req: NextRequest) {
         const { promises: fs } = await import("fs");
         const { join } = await import("path");
         const publicDir = join(process.cwd(), "public", "uploads");
-        const filePath = join(publicDir, fileKey);
         
-        // Check if file exists locally
+        // Try the fileKey as-is first (might include subdirectories like images/...)
+        let filePath = join(publicDir, fileKey);
+        
+        // Check if file exists locally with the full path
         try {
           await fs.access(filePath);
           const fileBuffer = await fs.readFile(filePath);
+          console.log(`[Images API] Serving local file: ${filePath}`);
           
           // Determine content type from extension
           const ext = fileKey.split('.').pop()?.toLowerCase();
@@ -65,9 +70,39 @@ export async function GET(req: NextRequest) {
             },
           });
         } catch {
-          // File doesn't exist locally, fall through to S3
+          // If fileKey has a path like "images/filename.ext", try just the filename
+          const fileNameOnly = fileKey.split('/').pop() || fileKey;
+          filePath = join(publicDir, fileNameOnly);
+          
+          try {
+            await fs.access(filePath);
+            const fileBuffer = await fs.readFile(filePath);
+            console.log(`[Images API] Serving local file (filename only): ${filePath}`);
+            
+            const ext = fileNameOnly.split('.').pop()?.toLowerCase();
+            const contentTypeMap: Record<string, string> = {
+              'jpg': 'image/jpeg',
+              'jpeg': 'image/jpeg',
+              'png': 'image/png',
+              'gif': 'image/gif',
+              'webp': 'image/webp',
+              'svg': 'image/svg+xml',
+            };
+            const contentType = contentTypeMap[ext || ''] || 'image/jpeg';
+            
+            return new NextResponse(fileBuffer, {
+              headers: {
+                'Content-Type': contentType,
+                'Cache-Control': 'public, max-age=3600, must-revalidate',
+              },
+            });
+          } catch {
+            console.log(`[Images API] File not found locally: ${filePath}, falling through to S3`);
+            // File doesn't exist locally, fall through to S3
+          }
         }
-      } catch {
+      } catch (error) {
+        console.error("[Images API] Error checking local file:", error);
         // Error reading local file, fall through to S3
       }
     }

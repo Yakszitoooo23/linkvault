@@ -86,22 +86,33 @@ export function ProductDetailClient({ product }: ProductDetailClientProps) {
 
   // Always use API route for images to handle both local and S3 storage
   let displayImageUrl: string | null = null;
+  
+  console.log('[ProductDetailClient] Image data:', { imageUrl: product.imageUrl, imageKey: product.imageKey, id: product.id });
+  
   if (product.imageUrl) {
+    // If it's already an API route, use it directly
+    if (product.imageUrl.startsWith('/api/images')) {
+      displayImageUrl = product.imageUrl;
+    }
     // If it's a local upload path, extract the filename and use the API route
-    if (product.imageUrl.startsWith('/uploads/')) {
+    else if (product.imageUrl.startsWith('/uploads/')) {
       const filename = product.imageUrl.replace('/uploads/', '');
       displayImageUrl = `/api/images?fileKey=${encodeURIComponent(filename)}`;
-    } else if (product.imageUrl.startsWith('http://') || product.imageUrl.startsWith('https://')) {
-      // External URL (e.g., Supabase), use directly
+    }
+    // External URL (e.g., Supabase), use directly
+    else if (product.imageUrl.startsWith('http://') || product.imageUrl.startsWith('https://')) {
       displayImageUrl = product.imageUrl;
-    } else {
-      // Relative path, assume it's from API
-      displayImageUrl = product.imageUrl;
+    }
+    // Otherwise, assume it's a fileKey and use API route
+    else {
+      displayImageUrl = `/api/images?fileKey=${encodeURIComponent(product.imageUrl)}`;
     }
   } else if (product.imageKey) {
     // Use imageKey with API route
     displayImageUrl = `/api/images?fileKey=${encodeURIComponent(product.imageKey)}`;
   }
+  
+  console.log('[ProductDetailClient] Final displayImageUrl:', displayImageUrl);
 
   return (
     <div>

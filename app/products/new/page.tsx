@@ -120,37 +120,33 @@ export default function CreateProductPage() {
   const uploadFile = async (file: File, isImage: boolean = false): Promise<string> => {
     const isDevMode = process.env.NODE_ENV === 'development';
     
-    if (isDevMode) {
-      // In dev mode, just return a mock fileKey
+    // Generate fileKey
+    const fileExtension = file.name.split('.').pop();
+    const fileKey = isImage 
+      ? `images/${crypto.randomUUID()}-cover.${fileExtension}`
+      : `files/${crypto.randomUUID()}-${file.name}`;
+    
+    if (isDevMode && process.env.DEV_NO_STORAGE === "true") {
+      // In dev mode with no storage, just return a mock fileKey
+      return `dev-${Date.now()}-${file.name}`;
+    } else {
+      // Upload file directly via API route (handles S3/R2 upload server-side)
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('fileKey', fileKey);
+
       const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileKey: `dev-${Date.now()}-${file.name}` }),
+        body: formData,
       });
+
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to upload file');
+      }
+
       const uploadData = await uploadResponse.json();
       return uploadData.fileKey;
-    } else {
-      // Production mode: upload to S3
-      const fileExtension = file.name.split('.').pop();
-      const fileKey = isImage 
-        ? `${crypto.randomUUID()}-cover.${fileExtension}`
-        : `${crypto.randomUUID()}-${file.name}`;
-
-      // Get pre-signed URL
-      const uploadResponse = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileKey }),
-      });
-      const uploadData = await uploadResponse.json();
-
-      // Upload file to S3
-      await fetch(uploadData.url, {
-        method: 'PUT',
-        body: file,
-      });
-
-      return fileKey;
     }
   };
 

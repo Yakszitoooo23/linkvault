@@ -34,7 +34,18 @@ export async function POST(req: NextRequest) {
       env.FILE_SECRET_ACCESS_KEY;
 
     if (hasS3Config) {
-      return await uploadToS3(file, fileName || "image", contentType);
+      try {
+        return await uploadToS3(file, fileName || "image", contentType);
+      } catch (s3Error: any) {
+        console.error("[Upload Image] S3 upload failed:", s3Error);
+        // Return detailed error
+        return NextResponse.json(
+          { 
+            error: `S3 upload failed: ${s3Error?.message || 'Unknown error'}. Please check your S3 configuration.` 
+          },
+          { status: 500 }
+        );
+      }
     }
 
     // Only allow local storage in development
@@ -43,6 +54,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Production without storage config is an error
+    console.error("[Upload Image] No storage configured. S3:", {
+      FILE_BUCKET: !!env.FILE_BUCKET,
+      FILE_REGION: !!env.FILE_REGION,
+      FILE_ACCESS_KEY_ID: !!env.FILE_ACCESS_KEY_ID,
+      FILE_SECRET_ACCESS_KEY: !!env.FILE_SECRET_ACCESS_KEY,
+    });
+    
     return NextResponse.json(
       { 
         error: "Image upload not configured. Please set S3 environment variables (FILE_BUCKET, FILE_REGION, FILE_ACCESS_KEY_ID, FILE_SECRET_ACCESS_KEY) or Supabase variables (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)." 
@@ -138,13 +156,22 @@ async function uploadToS3(
   contentType: string | null
 ): Promise<NextResponse> {
   try {
-    const s3Client = new S3Client({
+    const clientConfig: any = {
       region: env.FILE_REGION!,
       credentials: {
         accessKeyId: env.FILE_ACCESS_KEY_ID!,
         secretAccessKey: env.FILE_SECRET_ACCESS_KEY!,
       },
-    });
+    };
+    
+    // Cloudflare R2 requires custom endpoint
+    const endpoint = process.env.FILE_ENDPOINT;
+    if (endpoint) {
+      clientConfig.endpoint = endpoint;
+      clientConfig.forcePathStyle = true; // Required for R2
+    }
+    
+    const s3Client = new S3Client(clientConfig);
 
     // Generate safe filename
     const ext = fileName.split(".").pop() || "jpg";
