@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import { join } from "path";
 import { safe } from "@/lib/sanitize";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { env } from "@/lib/env";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { getR2Client, getR2Bucket, getR2PublicBase } from "@/lib/r2";
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,22 +26,21 @@ export async function POST(req: NextRequest) {
       return await uploadToSupabase(file, fileName || "image", contentType);
     }
 
-    // Check for S3 configuration (preferred if Supabase not available)
-    const hasS3Config = 
-      env.FILE_BUCKET && 
-      env.FILE_REGION && 
-      env.FILE_ACCESS_KEY_ID && 
-      env.FILE_SECRET_ACCESS_KEY;
+    // Check for R2/S3 configuration (preferred if Supabase not available)
+    const hasR2Config = 
+      process.env.FILE_ENDPOINT && 
+      process.env.FILE_ACCESS_KEY_ID && 
+      process.env.FILE_SECRET_ACCESS_KEY;
 
-    if (hasS3Config) {
+    if (hasR2Config) {
       try {
-        return await uploadToS3(file, fileName || "image", contentType);
-      } catch (s3Error: any) {
-        console.error("[Upload Image] S3 upload failed:", s3Error);
+        return await uploadToR2(file, fileName || "image", contentType);
+      } catch (r2Error: any) {
+        console.error("[Upload Image] R2 upload failed:", r2Error);
         // Return detailed error
         return NextResponse.json(
           { 
-            error: `S3 upload failed: ${s3Error?.message || 'Unknown error'}. Please check your S3 configuration.` 
+            error: `R2 upload failed: ${r2Error?.message || 'Unknown error'}. Please check your R2 configuration.` 
           },
           { status: 500 }
         );
@@ -54,16 +53,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Production without storage config is an error
-    console.error("[Upload Image] No storage configured. S3:", {
-      FILE_BUCKET: !!env.FILE_BUCKET,
-      FILE_REGION: !!env.FILE_REGION,
-      FILE_ACCESS_KEY_ID: !!env.FILE_ACCESS_KEY_ID,
-      FILE_SECRET_ACCESS_KEY: !!env.FILE_SECRET_ACCESS_KEY,
+    console.error("[Upload Image] No storage configured. R2:", {
+      FILE_BUCKET: !!process.env.FILE_BUCKET,
+      FILE_ENDPOINT: !!process.env.FILE_ENDPOINT,
+      FILE_ACCESS_KEY_ID: !!process.env.FILE_ACCESS_KEY_ID,
+      FILE_SECRET_ACCESS_KEY: !!process.env.FILE_SECRET_ACCESS_KEY,
+      R2_PUBLIC_BASE: !!process.env.R2_PUBLIC_BASE,
     });
     
     return NextResponse.json(
       { 
-        error: "Image upload not configured. Please set S3 environment variables (FILE_BUCKET, FILE_REGION, FILE_ACCESS_KEY_ID, FILE_SECRET_ACCESS_KEY) or Supabase variables (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)." 
+        error: "Image upload not configured. Please set R2 environment variables (FILE_BUCKET, FILE_ENDPOINT, FILE_ACCESS_KEY_ID, FILE_SECRET_ACCESS_KEY, R2_PUBLIC_BASE) or Supabase variables (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)." 
       },
       { status: 500 }
     );
@@ -150,56 +150,53 @@ async function uploadToSupabase(
   }
 }
 
-async function uploadToS3(
+async function uploadToR2(
   file: File,
   fileName: string,
   contentType: string | null
 ): Promise<NextResponse> {
   try {
-    const clientConfig: any = {
-      region: env.FILE_REGION!,
-      credentials: {
-        accessKeyId: env.FILE_ACCESS_KEY_ID!,
-        secretAccessKey: env.FILE_SECRET_ACCESS_KEY!,
-      },
-    };
-    
-    // Cloudflare R2 requires custom endpoint
-    const endpoint = process.env.FILE_ENDPOINT;
-    if (endpoint) {
-      clientConfig.endpoint = endpoint;
-      clientConfig.forcePathStyle = true; // Required for R2
-    }
-    
-    const s3Client = new S3Client(clientConfig);
+    const s3 = getR2Client();
+    const bucket = getR2Bucket();
+    const publicBase = getR2PublicBase();
 
     // Generate safe filename
     const ext = fileName.split(".").pop() || "jpg";
     const safeFileName = safe(fileName);
     const uniqueId = crypto.randomUUID();
-    const fileKey = `images/${uniqueId}-${safeFileName}.${ext}`;
+    const key = `images/${uniqueId}-${safeFileName}.${ext}`;
+
+    console.log(`[Upload Image] Uploading to R2 bucket: ${bucket}, key: ${key}`);
 
     // Convert file to buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Upload to S3
+    // Upload to R2
     const command = new PutObjectCommand({
-      Bucket: env.FILE_BUCKET!,
-      Key: fileKey,
+      Bucket: bucket,
+      Key: key,
       Body: buffer,
       ContentType: contentType || file.type || `image/${ext}`,
     });
 
-    await s3Client.send(command);
+    try {
+      await s3.send(command);
+      console.log(`[Upload Image] Successfully uploaded to R2 bucket: ${bucket}, key: ${key}`);
+    } catch (uploadError: any) {
+      console.error(`[Upload Image] Upload failed. Bucket: ${bucket}, Key: ${key}, Error:`, uploadError);
+      throw uploadError;
+    }
 
-    // Return the fileKey (will be used to generate presigned URLs via /api/images)
+    // Return public URL using R2_PUBLIC_BASE
+    const publicUrl = `${publicBase}/${key}`;
+    
     return NextResponse.json({
-      url: `/api/images?fileKey=${encodeURIComponent(fileKey)}`,
-      fileKey: fileKey,
+      url: publicUrl,
+      fileKey: key,
     });
   } catch (e: any) {
-    console.error("S3 upload error:", e);
+    console.error("R2 upload error:", e);
     throw e;
   }
 }

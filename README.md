@@ -36,6 +36,7 @@ FILE_BUCKET=your-bucket
 FILE_REGION=us-east-1
 FILE_ACCESS_KEY_ID=your_key_id
 FILE_SECRET_ACCESS_KEY=your_secret_key
+FILE_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com  # Required for Cloudflare R2, leave empty for AWS S3
 
 # Supabase (optional, for image storage - recommended for production)
 SUPABASE_URL=https://your-project.supabase.co
