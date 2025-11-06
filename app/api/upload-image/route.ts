@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { uploadToR2 } from "@/lib/uploadToR2";
+import { isR2Configured } from "@/lib/r2";
 
 export const runtime = "nodejs";
 
@@ -14,16 +15,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "File is required" }, { status: 400 });
     }
 
-    if (
-      !process.env.R2_ACCOUNT_ID ||
-      !process.env.R2_ACCESS_KEY_ID ||
-      !process.env.R2_SECRET_ACCESS_KEY ||
-      !process.env.R2_BUCKET
-    ) {
+    if (!isR2Configured()) {
       return NextResponse.json(
         {
           error:
-            "Cloudflare R2 is not configured. Please set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET.",
+            "Cloudflare R2 is not configured. Please set R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/R2_BUCKET or legacy FILE_* variables.",
         },
         { status: 500 },
       );

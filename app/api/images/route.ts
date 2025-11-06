@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { r2 } from "@/lib/r2";
+import { getR2Bucket, getR2Client } from "@/lib/r2";
 
 async function streamToBytes(stream: any): Promise<Uint8Array> {
   const chunks: Buffer[] = [];
@@ -20,10 +20,20 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "fileKey required" }, { status: 400 });
   }
 
+  let bucket: string;
   try {
-    const obj: any = await r2.send(
+    bucket = getR2Bucket();
+  } catch (error) {
+    console.error("[Images API] R2 bucket configuration error:", error);
+    return NextResponse.json({ error: "Storage not configured" }, { status: 500 });
+  }
+
+  const client = getR2Client();
+
+  try {
+    const obj: any = await client.send(
       new GetObjectCommand({
-        Bucket: process.env.R2_BUCKET!,
+        Bucket: bucket,
         Key: fileKey,
       }),
     );
@@ -42,7 +52,11 @@ export async function GET(req: Request) {
         "Cache-Control": "public, max-age=31536000, immutable",
       },
     });
-  } catch {
+  } catch (error: any) {
+    if (error?.name === "NoSuchKey" || error?.$metadata?.httpStatusCode === 404) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    console.error("[Images API] R2 fetch error:", error);
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 }

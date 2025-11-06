@@ -11,10 +11,10 @@ export const env = {
   WHOP_WEBHOOK_SECRET: process.env.WHOP_WEBHOOK_SECRET,
   
   // Cloudflare R2
-  R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID,
-  R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID,
-  R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY,
-  R2_BUCKET: process.env.R2_BUCKET,
+  R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID ?? null,
+  R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID ?? process.env.FILE_ACCESS_KEY_ID ?? null,
+  R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY ?? process.env.FILE_SECRET_ACCESS_KEY ?? null,
+  R2_BUCKET: process.env.R2_BUCKET ?? process.env.FILE_BUCKET ?? null,
   R2_PUBLIC_BASE: process.env.R2_PUBLIC_BASE,
   
   // Supabase (optional, for image storage)

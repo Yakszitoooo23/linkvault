@@ -32,10 +32,10 @@ WHOP_API_KEY=your_whop_api_key_here
 WHOP_WEBHOOK_SECRET=your_webhook_secret_here
 
 # Storage (Cloudflare R2 - S3 API)
-R2_ACCOUNT_ID=your-account-id
-R2_ACCESS_KEY_ID=your_key_id
-R2_SECRET_ACCESS_KEY=your_secret_key
-R2_BUCKET=your-bucket
+R2_ACCOUNT_ID=your-account-id              # or set FILE_ENDPOINT instead
+R2_ACCESS_KEY_ID=your_key_id               # legacy FILE_ACCESS_KEY_ID also supported
+R2_SECRET_ACCESS_KEY=your_secret_key       # legacy FILE_SECRET_ACCESS_KEY also supported
+R2_BUCKET=your-bucket                      # legacy FILE_BUCKET also supported
 R2_PUBLIC_BASE=https://your-bucket.r2.dev  # Optional public domain/binding
 
 # Supabase (optional, for image storage - recommended for production)

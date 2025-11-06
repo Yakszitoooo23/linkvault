@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
-import { r2 } from "@/lib/r2";
+import { getR2Bucket, getR2Client, isR2Configured } from "@/lib/r2";
 
 export const runtime = "nodejs";
 
@@ -18,23 +18,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "fileKey is required" }, { status: 400 });
     }
 
-    if (
-      !process.env.R2_ACCOUNT_ID ||
-      !process.env.R2_ACCESS_KEY_ID ||
-      !process.env.R2_SECRET_ACCESS_KEY ||
-      !process.env.R2_BUCKET
-    ) {
+    if (!isR2Configured()) {
       return NextResponse.json(
         {
           error:
-            "Cloudflare R2 is not configured. Please set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET.",
+            "Cloudflare R2 is not configured. Please set R2_* variables or legacy FILE_* equivalents.",
         },
         { status: 500 },
       );
     }
     
     try {
-      console.log(`[Upload API] Uploading to R2 bucket: ${process.env.R2_BUCKET}, key: ${fileKey}`);
+      const client = getR2Client();
+      const bucket = getR2Bucket();
+
+      console.log(`[Upload API] Uploading to R2 bucket: ${bucket}, key: ${fileKey}`);
 
       // Convert file to buffer
       const arrayBuffer = await file.arrayBuffer();
@@ -42,14 +40,14 @@ export async function POST(req: NextRequest) {
       
       // Upload directly to R2
       const command = new PutObjectCommand({
-        Bucket: process.env.R2_BUCKET!,
+        Bucket: bucket,
         Key: fileKey,
         Body: buffer,
         ContentType: file.type || "application/octet-stream",
       });
       
-      await r2.send(command);
-      console.log(`[Upload API] Successfully uploaded to R2 bucket: ${process.env.R2_BUCKET}, key: ${fileKey}`);
+      await client.send(command);
+      console.log(`[Upload API] Successfully uploaded to R2 bucket: ${bucket}, key: ${fileKey}`);
       
       return NextResponse.json({ fileKey });
     } catch (uploadError: any) {

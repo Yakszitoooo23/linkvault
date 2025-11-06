@@ -1,7 +1,7 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { lookup as mimeLookup } from "mime-types";
 import { randomUUID } from "crypto";
-import { r2 } from "./r2";
+import { getR2Bucket, getR2Client } from "./r2";
 
 type Ext = "png" | "webp" | "jpg" | "jpeg" | "svg";
 
@@ -26,9 +26,12 @@ export async function uploadToR2(opts: {
   const key = `${keyPrefix}/${randomUUID()}-${safeBase}.${ext}`;
   const ContentType = (mimeLookup(ext) || "application/octet-stream") as string;
 
-  await r2.send(
+  const client = getR2Client();
+  const bucket = getR2Bucket();
+
+  await client.send(
     new PutObjectCommand({
-      Bucket: process.env.R2_BUCKET!,
+      Bucket: bucket,
       Key: key,
       Body: buffer,
       ContentType,
