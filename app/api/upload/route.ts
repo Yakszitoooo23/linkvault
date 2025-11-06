@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
-import { getR2Client, getR2Bucket } from "@/lib/r2";
+import { r2 } from "@/lib/r2";
+
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,34 +17,39 @@ export async function POST(req: NextRequest) {
     if (!fileKey) {
       return NextResponse.json({ error: "fileKey is required" }, { status: 400 });
     }
-    
-    // DEV mode: bypass R2 storage
-    if (process.env.DEV_NO_STORAGE === "true") {
-      return NextResponse.json({ 
-        fileKey: `dev-${Date.now()}.txt` 
-      });
+
+    if (
+      !process.env.R2_ACCOUNT_ID ||
+      !process.env.R2_ACCESS_KEY_ID ||
+      !process.env.R2_SECRET_ACCESS_KEY ||
+      !process.env.R2_BUCKET
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Cloudflare R2 is not configured. Please set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET.",
+        },
+        { status: 500 },
+      );
     }
     
     try {
-      const s3 = getR2Client();
-      const bucket = getR2Bucket();
-      
-      console.log(`[Upload API] Uploading to R2 bucket: ${bucket}, key: ${fileKey}`);
-      
+      console.log(`[Upload API] Uploading to R2 bucket: ${process.env.R2_BUCKET}, key: ${fileKey}`);
+
       // Convert file to buffer
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       
       // Upload directly to R2
       const command = new PutObjectCommand({
-        Bucket: bucket,
+        Bucket: process.env.R2_BUCKET!,
         Key: fileKey,
         Body: buffer,
         ContentType: file.type || "application/octet-stream",
       });
       
-      await s3.send(command);
-      console.log(`[Upload API] Successfully uploaded to R2 bucket: ${bucket}, key: ${fileKey}`);
+      await r2.send(command);
+      console.log(`[Upload API] Successfully uploaded to R2 bucket: ${process.env.R2_BUCKET}, key: ${fileKey}`);
       
       return NextResponse.json({ fileKey });
     } catch (uploadError: any) {

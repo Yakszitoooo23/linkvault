@@ -31,12 +31,12 @@ NEXT_PUBLIC_WHOP_REDIRECT_URL=https://your-vercel-domain.vercel.app/api/auth/cal
 WHOP_API_KEY=your_whop_api_key_here
 WHOP_WEBHOOK_SECRET=your_webhook_secret_here
 
-# Storage (S3 or Cloudflare R2 S3-compatible)
-FILE_BUCKET=your-bucket
-FILE_REGION=us-east-1
-FILE_ACCESS_KEY_ID=your_key_id
-FILE_SECRET_ACCESS_KEY=your_secret_key
-FILE_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com  # Required for Cloudflare R2, leave empty for AWS S3
+# Storage (Cloudflare R2 - S3 API)
+R2_ACCOUNT_ID=your-account-id
+R2_ACCESS_KEY_ID=your_key_id
+R2_SECRET_ACCESS_KEY=your_secret_key
+R2_BUCKET=your-bucket
+R2_PUBLIC_BASE=https://your-bucket.r2.dev  # Optional public domain/binding
 
 # Supabase (optional, for image storage - recommended for production)
 SUPABASE_URL=https://your-project.supabase.co
@@ -77,7 +77,7 @@ pnpm prisma:migrate
 - ✅ Checkout integration at `/api/checkout` - creates Whop checkout sessions (falls back to dev mode if API key not configured)
 - ✅ Webhook endpoint at `/api/webhook` for handling payment events
 - ✅ Error pages (404 and 500) with LinkVault branding
-- ✅ Production-safe image uploads (requires Supabase in production, local only in development)
+- ✅ Production-safe image uploads backed by Cloudflare R2
 
 ## 5) Security Notes
 - Always verify webhook signatures (already implemented)

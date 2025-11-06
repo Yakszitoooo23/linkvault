@@ -117,14 +117,10 @@ export default function CreateProductPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const uploadFile = async (file: File, isImage: boolean = false): Promise<string> => {
+  const uploadDigitalFile = async (file: File): Promise<string> => {
     const isDevMode = process.env.NODE_ENV === 'development';
     
-    // Generate fileKey
-    const fileExtension = file.name.split('.').pop();
-    const fileKey = isImage 
-      ? `images/${crypto.randomUUID()}-cover.${fileExtension}`
-      : `files/${crypto.randomUUID()}-${file.name}`;
+    const fileKey = `files/${crypto.randomUUID()}-${file.name}`;
     
     if (isDevMode && process.env.DEV_NO_STORAGE === "true") {
       // In dev mode with no storage, just return a mock fileKey
@@ -165,7 +161,7 @@ export default function CreateProductPage() {
       let finalImageUrl: string | undefined;
 
       if (digitalFile) {
-        fileKey = await uploadFile(digitalFile, false);
+        fileKey = await uploadDigitalFile(digitalFile);
       } else {
         throw new Error('Digital file is required');
       }
@@ -196,8 +192,7 @@ export default function CreateProductPage() {
         } catch (imageError) {
           console.error('Error uploading image:', imageError);
           // Don't block product creation if image upload fails
-          // Fall back to legacy imageKey
-          imageKey = await uploadFile(imageFile, true);
+          imageKey = undefined;
         }
       }
 
