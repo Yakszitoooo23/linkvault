@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getDownloadUrl } from "@/lib/storage";
+import { getR2Bucket, getR2Client, getR2PublicBase } from "@/lib/r2";
 
 // Force dynamic rendering for image serving
 export const dynamic = 'force-dynamic';
@@ -121,8 +123,68 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Try to fetch from S3 (only if S3 is configured)
-    if (process.env.FILE_BUCKET && process.env.FILE_ACCESS_KEY_ID && process.env.FILE_SECRET_ACCESS_KEY) {
+    // Try to fetch from R2 first (if configured with custom endpoint)
+    if (process.env.FILE_ENDPOINT && process.env.FILE_BUCKET && process.env.FILE_ACCESS_KEY_ID && process.env.FILE_SECRET_ACCESS_KEY) {
+      try {
+        console.log(`[Images API] Attempting to fetch from R2, fileKey: ${fileKey}`);
+        const r2 = getR2Client();
+        const bucket = getR2Bucket();
+        const command = new GetObjectCommand({ Bucket: bucket, Key: fileKey });
+        const result = await r2.send(command);
+
+        if (!result.Body) {
+          throw new Error("R2 object Body is empty");
+        }
+
+        const chunks: Buffer[] = [];
+        for await (const chunk of result.Body as any) {
+          if (Buffer.isBuffer(chunk)) {
+            chunks.push(chunk);
+          } else if (chunk instanceof Uint8Array) {
+            chunks.push(Buffer.from(chunk));
+          } else {
+            chunks.push(Buffer.from(chunk));
+          }
+        }
+        const buffer = Buffer.concat(chunks);
+
+        const contentType =
+          result.ContentType ||
+          (() => {
+            const ext = fileKey.split(".").pop()?.toLowerCase();
+            const map: Record<string, string> = {
+              jpg: "image/jpeg",
+              jpeg: "image/jpeg",
+              png: "image/png",
+              gif: "image/gif",
+              webp: "image/webp",
+              svg: "image/svg+xml",
+            };
+            return map[ext || ""] || "image/jpeg";
+          })();
+
+        return new NextResponse(buffer, {
+          headers: {
+            "Content-Type": contentType,
+            "Cache-Control": result.CacheControl || "public, max-age=3600, must-revalidate",
+          },
+        });
+      } catch (r2Error: any) {
+        console.error(`[Images API] R2 fetch error for fileKey: ${fileKey}`, r2Error?.message || r2Error);
+
+        // If a public base is available, try redirecting as a fallback
+        if (process.env.R2_PUBLIC_BASE) {
+          const publicUrl = `${getR2PublicBase().replace(/\/$/, "")}/${fileKey}`;
+          console.warn(`[Images API] Falling back to R2 public URL redirect: ${publicUrl}`);
+          return NextResponse.redirect(publicUrl, { status: 302 });
+        }
+
+        // Fall through to placeholder
+      }
+    }
+
+    // Try to fetch from S3 (only if S3 is configured without custom endpoint)
+    if (!process.env.FILE_ENDPOINT && process.env.FILE_BUCKET && process.env.FILE_ACCESS_KEY_ID && process.env.FILE_SECRET_ACCESS_KEY) {
       try {
         console.log(`[Images API] Attempting to fetch from S3, fileKey: ${fileKey}`);
         const imageUrl = await getDownloadUrl(fileKey, 3600);
