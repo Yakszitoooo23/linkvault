@@ -4,10 +4,11 @@ const nextConfig = {
     serverActions: { allowedOrigins: ["*"] },
   },
   images: {
-    domains: [
-      "linkvault-five.vercel.app",
-      // "your-bucket-id.r2.dev",
-      // "cdn.yourdomain.com",
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'pub-edb4941ad2dc4265a302abdc5178040c.r2.dev',
+      },
     ],
   },
   webpack: (config, { isServer }) => {
@@ -22,4 +23,17 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
+```
 
+## IMPORTANT: One More Thing
+
+**Check your database** - are your image URLs stored correctly?
+
+They should be:
+```
+https://pub-edb4941ad2dc4265a302abdc5178040c.r2.dev/images/filename.png
+```
+
+NOT:
+```
+linkvault/images/filename.png
