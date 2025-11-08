@@ -11,15 +11,31 @@ model User {
   id         String   @id @default(cuid())
   whopUserId String   @unique
   role       String   @default("buyer")
+  companyId  String?
+  company    Company? @relation(fields: [companyId], references: [id])
   createdAt  DateTime @default(now())
-  products   Product[]
   purchases  Purchase[]
+}
+
+model Company {
+  id               String    @id @default(cuid())
+  whopCompanyId    String    @unique
+  name             String
+  whopAccessToken  String?
+  whopRefreshToken String?
+  tokenExpiresAt   DateTime?
+  whopProductId    String?
+  isActive         Boolean   @default(true)
+  installedAt      DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  products         Product[]
+  users            User[]
 }
 
 model Product {
   id          String    @id @default(cuid())
-  ownerId     String
-  owner       User      @relation(fields: [ownerId], references: [id])
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id])
   title       String
   description String?
   priceCents  Int
@@ -28,6 +44,7 @@ model Product {
   imageKey    String?   // Legacy image field
   imageUrl    String?   @db.VarChar(1024)
   whopPlanId  String?   @db.VarChar(191)
+  planId      String?
   version     Int       @default(1)
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
