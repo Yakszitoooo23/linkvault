@@ -89,27 +89,19 @@ export function ProductDetailClient({ product }: ProductDetailClientProps) {
   
   console.log('[ProductDetailClient] Image data:', { imageUrl: product.imageUrl, imageKey: product.imageKey, id: product.id });
   
-  if (product.imageUrl) {
-    // If it's already an API route, use it directly
+  if (product.imageKey) {
+    displayImageUrl = `/api/images?fileKey=${encodeURIComponent(product.imageKey)}`;
+  } else if (product.imageUrl) {
     if (product.imageUrl.startsWith('/api/images')) {
       displayImageUrl = product.imageUrl;
-    }
-    // If it's a local upload path, extract the filename and use the API route
-    else if (product.imageUrl.startsWith('/uploads/')) {
+    } else if (product.imageUrl.startsWith('/uploads/')) {
       const filename = product.imageUrl.replace('/uploads/', '');
       displayImageUrl = `/api/images?fileKey=${encodeURIComponent(filename)}`;
-    }
-    // External URL (e.g., Supabase), use directly
-    else if (product.imageUrl.startsWith('http://') || product.imageUrl.startsWith('https://')) {
+    } else if (product.imageUrl.startsWith('http://') || product.imageUrl.startsWith('https://')) {
       displayImageUrl = product.imageUrl;
-    }
-    // Otherwise, assume it's a fileKey and use API route
-    else {
+    } else {
       displayImageUrl = `/api/images?fileKey=${encodeURIComponent(product.imageUrl)}`;
     }
-  } else if (product.imageKey) {
-    // Use imageKey with API route
-    displayImageUrl = `/api/images?fileKey=${encodeURIComponent(product.imageKey)}`;
   }
   
   console.log('[ProductDetailClient] Final displayImageUrl:', displayImageUrl);

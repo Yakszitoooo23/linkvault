@@ -127,7 +127,9 @@ export default function ProductPage() {
     );
   }
 
-  const displayImageUrl = product.imageUrl || (product.imageKey ? `/api/images?fileKey=${encodeURIComponent(product.imageKey)}` : null);
+  const displayImageUrl = product.imageKey
+    ? `/api/images?fileKey=${encodeURIComponent(product.imageKey)}`
+    : product.imageUrl;
 
   return (
     <div>
