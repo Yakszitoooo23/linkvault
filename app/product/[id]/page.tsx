@@ -9,6 +9,8 @@ interface Product {
   priceCents: number;
   imageKey: string | null;
   imageUrl: string | null;
+  currency: string;
+  planId: string | null;
   createdAt: string;
 }
 
@@ -23,6 +25,8 @@ async function getProduct(id: string): Promise<Product | null> {
         priceCents: true,
         imageKey: true,
         imageUrl: true,
+        currency: true,
+        planId: true,
         createdAt: true,
       },
     });

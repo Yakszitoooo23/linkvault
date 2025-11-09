@@ -15,6 +15,7 @@
     "@aws-sdk/s3-request-presigner": "^3.670.0",
     "@prisma/client": "^5.22.0",
     "@whop/api": "latest",
+    "@whop/react": "latest",
     "mime-types": "^2.1.35",
     "next": "^14.2.33",
     "react": "18.3.1",

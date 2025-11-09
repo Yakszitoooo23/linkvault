@@ -1,6 +1,9 @@
+import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 
-const WHOP_API_BASE_URL = "https://api.whop.com/v2";
+const WHOP_V2_TOKEN_ENDPOINT = "https://api.whop.com/api/v2/oauth/token";
+const WHOP_V5_API_BASE = "https://api.whop.com/api/v5";
+const TOKEN_EXPIRY_GRACE_PERIOD_MS = 60 * 1000;
 
 export class WhopApiError extends Error {
   status: number;
@@ -14,105 +17,185 @@ export class WhopApiError extends Error {
   }
 }
 
-type CreatePlanInput = {
-  plan_type: "one_time" | "renewal";
-  initial_price: number;
-  currency: string;
-  metadata?: Record<string, unknown>;
-};
-
-type CreatePlanResponse = {
+export type CompanyTokenBundle = {
   id: string;
-  [key: string]: unknown;
+  whopAccessToken: string | null;
+  whopRefreshToken: string | null;
+  tokenExpiresAt: Date | null;
 };
 
-type CreateCheckoutConfigurationInput = {
-  plan_id: string;
-  success_url: string;
-  cancel_url: string;
-  metadata?: Record<string, unknown>;
-};
+async function parseResponseJson(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
 
-type CreateCheckoutConfigurationResponse = {
-  id: string;
-  plan?: { id: string };
-  [key: string]: unknown;
-};
-
-type RequestOptions = Omit<RequestInit, "body"> & { body?: unknown };
-
-async function requestWhop<TResponse>(path: string, options: RequestOptions = {}): Promise<TResponse> {
-  if (!env.WHOP_API_KEY) {
-    throw new Error("Whop API key not configured");
+export async function ensureCompanyAccessToken(company: CompanyTokenBundle): Promise<string> {
+  if (!company.whopAccessToken) {
+    throw new Error("Company does not have a Whop access token");
   }
 
-  const { body, ...init } = options;
-
-  const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${env.WHOP_API_KEY}`);
-  headers.set("Content-Type", "application/json");
-
-  if (env.WHOP_APP_ID) {
-    headers.set("X-Whop-App-Id", env.WHOP_APP_ID);
+  const expiresAt = company.tokenExpiresAt ? new Date(company.tokenExpiresAt) : null;
+  const now = Date.now();
+  if (expiresAt && expiresAt.getTime() - TOKEN_EXPIRY_GRACE_PERIOD_MS > now) {
+    return company.whopAccessToken;
   }
 
-  const response = await fetch(`${WHOP_API_BASE_URL}${path}`, {
-    ...init,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+  if (!company.whopRefreshToken) {
+    throw new Error("Company Whop access token expired and refresh token is unavailable");
+  }
+
+  if (!env.WHOP_CLIENT_ID || !env.WHOP_CLIENT_SECRET) {
+    throw new Error("Whop OAuth client credentials are not configured");
+  }
+
+  const response = await fetch(WHOP_V2_TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: company.whopRefreshToken,
+      client_id: env.WHOP_CLIENT_ID,
+      client_secret: env.WHOP_CLIENT_SECRET,
+    }),
   });
 
-  let payload: unknown = null;
-  const text = await response.text();
-  if (text) {
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      payload = text;
-    }
+  if (!response.ok) {
+    const payload = await parseResponseJson(response);
+    console.error("Failed to refresh Whop access token", {
+      companyId: company.id,
+      status: response.status,
+      payload,
+    });
+    throw new Error("Failed to refresh Whop access token");
   }
 
+  const tokenData = (await response.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in?: number;
+  };
+
+  const newExpiresAt = new Date(Date.now() + ((tokenData.expires_in ?? 3600) * 1000));
+
+  const updated = await prisma.company.update({
+    where: { id: company.id },
+    data: {
+      whopAccessToken: tokenData.access_token,
+      whopRefreshToken: tokenData.refresh_token ?? company.whopRefreshToken,
+      tokenExpiresAt: newExpiresAt,
+    },
+    select: {
+      whopAccessToken: true,
+      whopRefreshToken: true,
+      tokenExpiresAt: true,
+    },
+  });
+
+  company.whopAccessToken = updated.whopAccessToken;
+  company.whopRefreshToken = updated.whopRefreshToken;
+  company.tokenExpiresAt = updated.tokenExpiresAt;
+
+  return updated.whopAccessToken;
+}
+
+export async function createCompanyPlan({
+  accessToken,
+  whopProductId,
+  priceCents,
+  currency,
+  releaseMethod = "buy_now",
+  visibility = "visible",
+  metadata,
+}: {
+  accessToken: string;
+  whopProductId: string;
+  priceCents: number;
+  currency: string;
+  releaseMethod?: "buy_now" | "waitlist";
+  visibility?: "visible" | "hidden";
+  metadata?: Record<string, unknown>;
+}): Promise<string> {
+  const response = await fetch(`${WHOP_V5_API_BASE}/plans`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      product_id: whopProductId,
+      plan_type: "one_time",
+      initial_price: priceCents,
+      currency,
+      release_method: releaseMethod,
+      visibility,
+      metadata,
+    }),
+  });
+
   if (!response.ok) {
-    let message: string | null = null;
-
-    if (typeof payload === "object" && payload !== null) {
-      const record = payload as Record<string, unknown>;
-      if (typeof record.error === "string") {
-        message = record.error;
-      } else if (typeof record.message === "string") {
-        message = record.message;
-      }
-    } else if (typeof payload === "string") {
-      message = payload;
-    }
-
+    const payload = await parseResponseJson(response);
     throw new WhopApiError(
-      message ?? `Whop API request to ${path} failed with status ${response.status}`,
+      "Failed to create Whop plan",
       response.status,
       payload
     );
   }
 
-  return payload as TResponse;
+  const plan = (await response.json()) as { id?: string };
+  if (!plan.id) {
+    throw new Error("Whop plan creation response did not include an id");
+  }
+
+  return plan.id;
 }
 
-export const whop = env.WHOP_API_KEY
-  ? {
-      plans: {
-        create: (input: CreatePlanInput) =>
-          requestWhop<CreatePlanResponse>("/plans", {
-            method: "POST",
-            body: input,
-          }),
-      },
-      checkoutConfigurations: {
-        create: (input: CreateCheckoutConfigurationInput) =>
-          requestWhop<CreateCheckoutConfigurationResponse>("/checkout_configurations", {
-            method: "POST",
-            body: input,
-          }),
-      },
-    }
-  : null;
+export async function createCompanyCheckoutConfiguration({
+  accessToken,
+  planId,
+  successUrl,
+  cancelUrl,
+  metadata,
+}: {
+  accessToken: string;
+  planId: string;
+  successUrl: string;
+  cancelUrl: string;
+  metadata?: Record<string, unknown>;
+}): Promise<string> {
+  const response = await fetch(`${WHOP_V5_API_BASE}/checkout_configurations`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      plan_id: planId,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      metadata,
+    }),
+  });
 
-export type WhopClient = NonNullable<typeof whop>;
+  if (!response.ok) {
+    const payload = await parseResponseJson(response);
+    throw new WhopApiError(
+      "Failed to create Whop checkout configuration",
+      response.status,
+      payload
+    );
+  }
+
+  const config = (await response.json()) as { id?: string };
+  if (!config.id) {
+    throw new Error("Whop checkout configuration response did not include an id");
+  }
+
+  return config.id;
+}

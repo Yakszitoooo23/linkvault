@@ -1,19 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
-import Script from "next/script";
+import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
 import { ArrowLeftIcon } from "@/components/ui/Icon";
-
-declare global {
-  interface Window {
-    Whop?: {
-      openCheckout: (checkoutId: string) => Promise<void>;
-    };
-  }
-}
+import { useWhopIframeSdk } from "@/components/providers/WhopProvider";
 
 interface Product {
   id: string;
@@ -22,6 +14,8 @@ interface Product {
   priceCents: number;
   imageKey: string | null;
   imageUrl: string | null;
+  currency: string;
+  planId: string | null;
   createdAt: string;
 }
 
@@ -31,6 +25,7 @@ interface ProductDetailClientProps {
 
 export function ProductDetailClient({ product }: ProductDetailClientProps) {
   const router = useRouter();
+  const iframeSdk = useWhopIframeSdk();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{
@@ -43,48 +38,51 @@ export function ProductDetailClient({ product }: ProductDetailClientProps) {
     type: "success",
   });
 
+  const planReady = useMemo(() => Boolean(product.planId), [product.planId]);
+
   const handleBuyClick = async (event?: React.MouseEvent) => {
     event?.preventDefault();
     if (isLoading) return;
+
+    if (!planReady || !product.planId) {
+      setError("This product is not configured for purchase yet. Please contact the creator.");
+      setToast({
+        show: true,
+        message: "This product is not ready for checkout. Please try again later.",
+        type: "error",
+      });
+      return;
+    }
+
+    if (!iframeSdk) {
+      setError("Checkout SDK is not available.");
+      setToast({
+        show: true,
+        message: "Checkout is currently unavailable. Please refresh and try again.",
+        type: "error",
+      });
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(`/api/products/${product.id}/checkout`, {
-        method: "POST",
-      });
+      const result = await iframeSdk.inAppPurchase({ planId: product.planId });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        const baseMessage =
-          (errorData && typeof errorData === "object" && "error" in errorData
-            ? String(errorData.error)
-            : null) ?? "Failed to create checkout configuration";
-
-        const detailsMessage =
-          errorData && typeof errorData === "object" && "details" in errorData
-            ? JSON.stringify((errorData as Record<string, unknown>).details, null, 2)
-            : null;
-
-        const message = detailsMessage ? `${baseMessage}\n${detailsMessage}` : baseMessage;
-
+      if (result.status === "ok") {
+        setToast({
+          show: true,
+          message: "Purchase successful! You now have access to this product.",
+          type: "success",
+        });
+      } else {
+        const message =
+          (result as { error?: string }).error ?? "Checkout was cancelled or failed.";
         throw new Error(message);
       }
-
-      const data: { checkoutConfigId?: string } = await response.json();
-
-      if (!data.checkoutConfigId) {
-        throw new Error("No checkout configuration ID received");
-      }
-
-      if (!window.Whop?.openCheckout) {
-        throw new Error("Whop checkout SDK is not available");
-      }
-
-      await window.Whop.openCheckout(data.checkoutConfigId);
     } catch (err) {
-      console.error("Whop checkout error:", err);
+      console.error("Whop in-app purchase error:", err);
       const message = err instanceof Error ? err.message : "Checkout failed";
       setError(message);
       setToast({
@@ -92,9 +90,6 @@ export function ProductDetailClient({ product }: ProductDetailClientProps) {
         message,
         type: "error",
       });
-      if (typeof window !== "undefined") {
-        alert(message);
-      }
     } finally {
       setIsLoading(false);
     }
@@ -103,14 +98,12 @@ export function ProductDetailClient({ product }: ProductDetailClientProps) {
   const formatPrice = (cents: number) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: "USD",
+      currency: product.currency ?? "USD",
     }).format(cents / 100);
   };
 
   // Always use API route for images to handle both local and S3 storage
   let displayImageUrl: string | null = null;
-  
-  console.log('[ProductDetailClient] Image data:', { imageUrl: product.imageUrl, imageKey: product.imageKey, id: product.id });
   
   if (product.imageKey) {
     displayImageUrl = `/api/images?fileKey=${encodeURIComponent(product.imageKey)}`;
@@ -127,13 +120,10 @@ export function ProductDetailClient({ product }: ProductDetailClientProps) {
     }
   }
   
-  console.log('[ProductDetailClient] Final displayImageUrl:', displayImageUrl);
-
   return (
     <div>
       <div className="container">
         <div className="product-detail">
-          <Script src="https://assets.whop.com/sdk/v3/whop-sdk.js" strategy="beforeInteractive" />
           {/* Header */}
           <div className="product-detail-header">
             <Button
@@ -199,7 +189,7 @@ export function ProductDetailClient({ product }: ProductDetailClientProps) {
                 <Button
                   variant="primary"
                   onClick={handleBuyClick}
-                  disabled={isLoading}
+                  disabled={isLoading || !planReady}
                   aria-busy={isLoading}
                   className="buy-now-btn"
                 >

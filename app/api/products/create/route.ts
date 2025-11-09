@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
@@ -18,22 +17,13 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as Partial<CreateProductBody>;
     console.log("Product creation request body:", JSON.stringify(body, null, 2));
 
-    const authCookie = cookies().get("whop_user_id");
-    const userId = authCookie?.value ?? null;
-
-    if (!userId) {
-      console.warn("Product creation attempted without authentication");
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, companyId: true },
-    });
-
-    if (!user?.companyId) {
-      console.warn("Authenticated user not linked to company", { userId: user?.id });
-      return NextResponse.json({ error: "User not linked to a company" }, { status: 403 });
+    const companyIdFromBody = (body as any).companyId as string | undefined;
+    if (!companyIdFromBody) {
+      console.error("Legacy product creation missing companyId");
+      return NextResponse.json(
+        { error: "Company context missing. Please use the company dashboard to create products." },
+        { status: 400 }
+      );
     }
 
     if (!body.title || typeof body.priceCents !== "number" || !body.fileKey) {
@@ -62,8 +52,7 @@ export async function POST(req: NextRequest) {
     }
 
     console.info("Creating product via legacy endpoint", {
-      companyId: user.companyId,
-      userId: user.id,
+      companyId: companyIdFromBody,
       title: body.title,
     });
 
@@ -76,7 +65,7 @@ export async function POST(req: NextRequest) {
         fileKey: body.fileKey,
         imageKey: body.imageKey ?? null,
         imageUrl: body.imageUrl ?? null,
-        companyId: user.companyId,
+        companyId: companyIdFromBody,
       },
     });
 

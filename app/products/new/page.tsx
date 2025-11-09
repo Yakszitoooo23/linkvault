@@ -197,7 +197,7 @@ export default function CreateProductPage() {
       }
 
       // Create product
-      const productResponse = await fetch('/api/products/create', {
+      const productResponse = await fetch("/api/products/create-with-plan", {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -212,15 +212,23 @@ export default function CreateProductPage() {
       });
 
       if (!productResponse.ok) {
-        const errorData = await productResponse.json();
+        const errorData = await productResponse.json().catch(() => ({}));
         console.error('Product creation failed:', errorData);
-        throw new Error(errorData.error || 'Failed to create product');
+        throw new Error(
+          (errorData && typeof errorData === 'object' && 'error' in errorData)
+            ? String(errorData.error)
+            : 'Failed to create product'
+        );
       }
 
-      // Show success toast
+      const responseData = await productResponse.json().catch(() => ({}));
+      const createdProduct = responseData?.product;
+
       setToast({
         show: true,
-        message: 'Product created successfully!',
+        message: createdProduct?.title
+          ? `Product "${createdProduct.title}" created successfully!`
+          : 'Product created successfully!',
         type: 'success',
       });
 

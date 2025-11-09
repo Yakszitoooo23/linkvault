@@ -1,13 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    serverActions: { allowedOrigins: ["*"] },
+    serverActions: {
+      allowedOrigins: ["*", "*.apps.whop.com"],
+    },
+    optimizePackageImports: ["frosted-ui"],
   },
   images: {
     remotePatterns: [
       {
-        protocol: 'https',
-        hostname: 'pub-edb4941ad2dc4265a302abdc5178040c.r2.dev',
+        protocol: "https",
+        hostname: "pub-edb4941ad2dc4265a302abdc5178040c.r2.dev",
       },
     ],
   },
