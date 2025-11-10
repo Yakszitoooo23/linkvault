@@ -196,15 +196,11 @@ export async function GET(req: NextRequest) {
     redirectUrl.searchParams.set("success", "true");
     redirectUrl.searchParams.set("userId", user.id);
 
-    const response = NextResponse.redirect(redirectUrl.toString());
-    response.cookies.set("whop_user_id", user.id, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: expires_in || 3600,
+    return NextResponse.redirect(redirectUrl.toString(), {
+      headers: {
+        "Set-Cookie": `whop_user_id=${user.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}; ${process.env.NODE_ENV === "production" ? "Secure;" : ""}`,
+      },
     });
-
-    return response;
   } catch (err) {
     console.error("OAuth callback error:", err);
     const redirectUrl = new URL(env.NEXT_PUBLIC_WHOP_REDIRECT_URL || "/");
