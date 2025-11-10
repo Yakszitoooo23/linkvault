@@ -102,6 +102,10 @@ export async function ensureCompanyAccessToken(company: CompanyTokenBundle): Pro
   company.whopRefreshToken = updated.whopRefreshToken;
   company.tokenExpiresAt = updated.tokenExpiresAt;
 
+  if (!updated.whopAccessToken) {
+    throw new Error("Failed to refresh access token");
+  }
+
   return updated.whopAccessToken;
 }
 
