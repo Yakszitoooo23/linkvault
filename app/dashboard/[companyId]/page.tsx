@@ -103,9 +103,9 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ params }) => {
           <p className="dashboard-subtitle">Manage products for company {companyId}</p>
         </div>
         <div className="dashboard-actions">
-          <Button variant="secondary" href="/">
+          <Link href="/" className="btn-base btn-secondary">
             Back to Home
-          </Button>
+          </Link>
           <Button variant="primary" onClick={handleCreateProduct} disabled={loading}>
             New Product
           </Button>
