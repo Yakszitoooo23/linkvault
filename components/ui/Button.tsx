@@ -37,7 +37,34 @@ export function Button({
     subtle: "btn-subtle",
   };
 
-  const content = (
+  if (href) {
+    if (disabled) {
+      return (
+        <span
+          aria-label={ariaLabel}
+          aria-busy={ariaBusy}
+          aria-disabled="true"
+          className={`${baseClasses} ${variantClasses[variant]} ${className} pointer-events-none opacity-60`}
+        >
+          {children}
+        </span>
+      );
+    }
+
+    return (
+      <Link
+        href={href}
+        className={`${baseClasses} ${variantClasses[variant]} ${className}`}
+        aria-label={ariaLabel}
+        aria-busy={ariaBusy}
+        role={role}
+      >
+        {children}
+      </Link>
+    );
+  }
+
+  return (
     <button
       type={type}
       onClick={onClick}
@@ -50,10 +77,4 @@ export function Button({
       {children}
     </button>
   );
-
-  if (href && !disabled) {
-    return <Link href={href}>{content}</Link>;
-  }
-
-  return content;
 }
