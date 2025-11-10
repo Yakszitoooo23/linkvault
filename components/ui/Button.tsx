@@ -3,29 +3,20 @@ import React from 'react';
 "use client";
 
 import React from "react";
+import Link from "next/link";
 
-interface ButtonProps {
-  children: React.ReactNode;
-  onClick?: (e?: React.MouseEvent) => void;
-  "aria-label"?: string;
-  "aria-busy"?: boolean;
-  className?: string;
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary" | "subtle";
-  disabled?: boolean;
-  type?: "button" | "submit" | "reset";
-  role?: string;
+  href?: string;
 }
 
 export function Button({
-  children,
-  onClick,
-  "aria-label": ariaLabel,
-  "aria-busy": ariaBusy,
-  className = "",
   variant = "primary",
+  className = "",
   disabled = false,
-  type = "button",
-  role,
+  href,
+  children,
+  ...rest
 }: ButtonProps) {
   const baseClasses = "btn-base";
   const variantClasses = {
@@ -33,17 +24,26 @@ export function Button({
     secondary: "btn-secondary",
     subtle: "btn-subtle",
   };
+  const classes = `${baseClasses} ${variantClasses[variant]} ${className}`.trim();
+
+  if (href) {
+    if (disabled) {
+      return (
+        <span className={`${classes} pointer-events-none opacity-60`} aria-disabled="true">
+          {children}
+        </span>
+      );
+    }
+
+    return (
+      <Link href={href} className={classes}>
+        {children}
+      </Link>
+    );
+  }
 
   return (
-    <button
-      type={type}
-      onClick={onClick}
-      aria-label={ariaLabel}
-      aria-busy={ariaBusy}
-      disabled={disabled}
-      role={role}
-      className={`${baseClasses} ${variantClasses[variant]} ${className}`}
-    >
+    <button className={classes} disabled={disabled} {...rest}>
       {children}
     </button>
   );
