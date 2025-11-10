@@ -13,12 +13,10 @@ export default function NotFound() {
             The page you&apos;re looking for doesn&apos;t exist or has been moved.
           </p>
           <div className="error-actions">
-            <Link href="/">
-              <Button variant="primary">
-                <ArrowLeftIcon size={16} />
-                Back to Home
-              </Button>
-            </Link>
+            <Button variant="primary" href="/">
+              <ArrowLeftIcon size={16} />
+              Back to Home
+            </Button>
           </div>
         </div>
       </div>
