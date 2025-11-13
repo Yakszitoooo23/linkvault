@@ -30,14 +30,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { userId } = await validateToken({ headers: headers() });
+    const { userId: whopUserId } = await validateToken({ headers: headers() });
 
-    if (!userId) {
+    if (!whopUserId) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
     const user = await prisma.user.findUnique({
-      where: { id: userId },
+      where: { whopUserId },
       include: {
         company: true,
       },

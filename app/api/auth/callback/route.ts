@@ -140,7 +140,7 @@ export async function GET(req: NextRequest) {
 
     const tokenExpiresAt = new Date(Date.now() + (expires_in ?? 3600) * 1000);
 
-    let linkedCompanyId: string | null = null;
+    const installedCompanyIds: string[] = [];
 
     for (const company of companies) {
       try {
@@ -169,9 +169,7 @@ export async function GET(req: NextRequest) {
           },
         });
 
-        if (!linkedCompanyId) {
-          linkedCompanyId = upsertedCompany.id;
-        }
+        installedCompanyIds.push(upsertedCompany.id);
       } catch (companyError) {
         console.error("Failed to process company installation", {
           companyId: company.id,
@@ -180,7 +178,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const firstCompanyId = linkedCompanyId ?? companies[0]?.id ?? null;
+    const firstCompanyId = installedCompanyIds[0] ?? null;
 
     const user = await prisma.user.upsert({
       where: { whopUserId: whopUser.id },
