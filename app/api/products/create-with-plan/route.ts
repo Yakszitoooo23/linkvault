@@ -1,5 +1,6 @@
-import { cookies } from "next/headers";
+import { headers } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import { validateToken } from "@whop-apps/sdk";
 
 import { prisma } from "@/lib/db";
 import {
@@ -29,8 +30,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const authCookie = cookies().get("whop_user_id");
-    const userId = authCookie?.value ?? null;
+    const { userId } = await validateToken({ headers: headers() });
 
     if (!userId) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
