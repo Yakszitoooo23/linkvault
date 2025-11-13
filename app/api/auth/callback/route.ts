@@ -180,15 +180,17 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const firstCompanyId = linkedCompanyId ?? companies[0]?.id ?? null;
+
     const user = await prisma.user.upsert({
       where: { whopUserId: whopUser.id },
       create: {
         whopUserId: whopUser.id,
         role: "seller",
-        companyId: linkedCompanyId ?? undefined,
+        companyId: firstCompanyId ?? undefined,
       },
       update: {
-        companyId: linkedCompanyId ?? undefined,
+        companyId: firstCompanyId ?? undefined,
       },
     });
 
