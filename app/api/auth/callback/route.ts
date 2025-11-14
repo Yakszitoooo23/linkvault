@@ -31,13 +31,22 @@ type WhopProductResponse = {
 async function exchangeCodeForTokens(code: string): Promise<WhopTokenResponse> {
   // According to Whop docs: POST https://api.whop.com/v5/oauth/token
   // Body: JSON with grant_type, code, client_id, client_secret, redirect_uri
+  // For Whop Apps, might need App ID and API Key instead of Client ID/Secret
   const endpoint = "https://api.whop.com/v5/oauth/token";
+  
+  // Try Client ID/Secret first, fallback to App ID/API Key
+  const clientId = env.WHOP_CLIENT_ID || env.WHOP_APP_ID;
+  const clientSecret = env.WHOP_CLIENT_SECRET || env.WHOP_API_KEY;
+  
+  if (!clientId || !clientSecret) {
+    throw new Error("Missing OAuth credentials: need either WHOP_CLIENT_ID/WHOP_CLIENT_SECRET or WHOP_APP_ID/WHOP_API_KEY");
+  }
   
   const requestBody = {
     grant_type: "authorization_code",
     code,
-    client_id: env.WHOP_CLIENT_ID!,
-    client_secret: env.WHOP_CLIENT_SECRET!,
+    client_id: clientId,
+    client_secret: clientSecret,
     redirect_uri: env.NEXT_PUBLIC_WHOP_REDIRECT_URL!,
   };
 
@@ -204,12 +213,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing authorization code" }, { status: 400 });
     }
 
-    if (!env.WHOP_CLIENT_ID || !env.WHOP_CLIENT_SECRET || !env.NEXT_PUBLIC_WHOP_REDIRECT_URL) {
+    // For Whop Apps, we might need App ID and API Key instead of Client ID/Secret
+    // Try both: first Client ID/Secret, then App ID/API Key
+    const clientId = env.WHOP_CLIENT_ID || env.WHOP_APP_ID;
+    const clientSecret = env.WHOP_CLIENT_SECRET || env.WHOP_API_KEY;
+    
+    if (!clientId || !clientSecret || !env.NEXT_PUBLIC_WHOP_REDIRECT_URL) {
       console.error("[OAuth Callback] Missing Whop OAuth configuration", {
         hasClientId: !!env.WHOP_CLIENT_ID,
         hasClientSecret: !!env.WHOP_CLIENT_SECRET,
+        hasAppId: !!env.WHOP_APP_ID,
+        hasApiKey: !!env.WHOP_API_KEY,
         hasRedirectUrl: !!env.NEXT_PUBLIC_WHOP_REDIRECT_URL,
         redirectUrl: env.NEXT_PUBLIC_WHOP_REDIRECT_URL,
+        usingClientId: !!env.WHOP_CLIENT_ID,
+        usingApiKey: !!env.WHOP_API_KEY,
       });
       // Redirect to home page on error, NOT back to callback
       const redirectUrl = new URL("/", req.url);
