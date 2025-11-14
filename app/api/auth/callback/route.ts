@@ -247,31 +247,96 @@ export async function GET(req: NextRequest) {
     const whopUser = await fetchWhopUser(access_token);
     console.log("[OAuth Callback] Whop user fetched", { whopUserId: whopUser.id });
 
-    // SOLUTION 1: Create Whop product per user (not per company)
-    console.log("[OAuth Callback] Creating Whop product for user...");
-    
-    const tokenExpiresAt = new Date(Date.now() + (expires_in ?? 3600) * 1000);
-    
-    let whopProductId: string | null = null;
+    // Fetch user's companies and create Company records
+    console.log("[OAuth Callback] Fetching user's companies...");
+    let whopCompanies: WhopCompany[] = [];
     try {
-      whopProductId = await ensureCompanyProduct(access_token);
-      console.log("[OAuth Callback] User Whop product created", {
-        whopUserId: whopUser.id,
-        whopProductId,
+      whopCompanies = await fetchWhopCompanies(access_token);
+      console.log("[OAuth Callback] Companies fetched", { count: whopCompanies.length });
+    } catch (companiesError) {
+      console.error("[OAuth Callback] Failed to fetch companies", {
+        error: companiesError instanceof Error ? companiesError.message : String(companiesError),
       });
-    } catch (productError) {
-      console.error("[OAuth Callback] Failed to create Whop product for user", {
-        whopUserId: whopUser.id,
-        error: productError instanceof Error ? productError.message : String(productError),
-      });
-      // Continue anyway - product can be created later
+      // Continue anyway - companies might not be available
     }
 
-    // Update or create user with OAuth tokens and product ID
-    // First check if user exists to preserve existing whopProductId
+    const tokenExpiresAt = new Date(Date.now() + (expires_in ?? 3600) * 1000);
+    
+    // Upsert companies and create Whop product for first company
+    let firstCompanyId: string | null = null;
+    let companyWhopProductId: string | null = null;
+
+    if (whopCompanies.length > 0) {
+      console.log("[OAuth Callback] Upserting companies...");
+      const companyRecords = [];
+      
+      for (const whopCompany of whopCompanies) {
+        const company = await prisma.company.upsert({
+          where: { whopCompanyId: whopCompany.id },
+          create: {
+            whopCompanyId: whopCompany.id,
+            name: whopCompany.name,
+            whopAccessToken: access_token,
+            whopRefreshToken: refresh_token,
+            tokenExpiresAt,
+          },
+          update: {
+            whopAccessToken: access_token,
+            whopRefreshToken: refresh_token,
+            tokenExpiresAt,
+            name: whopCompany.name, // Update name in case it changed
+          },
+        });
+        companyRecords.push(company);
+        console.log("[OAuth Callback] Company upserted", {
+          companyId: company.id,
+          whopCompanyId: company.whopCompanyId,
+          name: company.name,
+        });
+      }
+
+      // Use first company for product creation and user linking
+      const firstCompany = companyRecords[0];
+      firstCompanyId = firstCompany.id;
+
+      // Create or get Whop product for company
+      if (!firstCompany.whopProductId) {
+        console.log("[OAuth Callback] Creating Whop product for company...");
+        try {
+          companyWhopProductId = await ensureCompanyProduct(access_token);
+          await prisma.company.update({
+            where: { id: firstCompany.id },
+            data: { whopProductId: companyWhopProductId },
+          });
+          console.log("[OAuth Callback] Company Whop product created", {
+            companyId: firstCompany.id,
+            whopProductId: companyWhopProductId,
+          });
+        } catch (productError) {
+          console.error("[OAuth Callback] Failed to create Whop product for company", {
+            companyId: firstCompany.id,
+            error: productError instanceof Error ? productError.message : String(productError),
+          });
+          // Continue anyway - product can be created later
+        }
+      } else {
+        companyWhopProductId = firstCompany.whopProductId;
+        console.log("[OAuth Callback] Using existing company Whop product", {
+          companyId: firstCompany.id,
+          whopProductId: companyWhopProductId,
+        });
+      }
+    } else {
+      console.warn("[OAuth Callback] No companies found for user", {
+        whopUserId: whopUser.id,
+      });
+    }
+
+    // Update or create user with OAuth tokens and link to company
+    // First check if user exists to preserve existing data
     const existingUser = await prisma.user.findUnique({
       where: { whopUserId: whopUser.id },
-      select: { whopProductId: true },
+      select: { whopProductId: true, companyId: true },
     });
 
     const user = await prisma.user.upsert({
@@ -279,14 +344,18 @@ export async function GET(req: NextRequest) {
       create: {
         whopUserId: whopUser.id,
         role: "seller",
-        whopProductId: whopProductId ?? undefined,
+        companyId: firstCompanyId ?? undefined,
+        // Store company's product ID on user for backward compatibility
+        whopProductId: companyWhopProductId ?? undefined,
         whopAccessToken: access_token,
         whopRefreshToken: refresh_token,
         tokenExpiresAt,
       },
       update: {
+        // Update companyId if we have one
+        companyId: firstCompanyId ?? existingUser?.companyId ?? undefined,
         // Only update whopProductId if we got a new one, otherwise keep existing
-        whopProductId: whopProductId ?? existingUser?.whopProductId ?? undefined,
+        whopProductId: companyWhopProductId ?? existingUser?.whopProductId ?? undefined,
         whopAccessToken: access_token,
         whopRefreshToken: refresh_token,
         tokenExpiresAt,
@@ -299,13 +368,22 @@ export async function GET(req: NextRequest) {
       companyId: user.companyId,
       whopProductId: user.whopProductId,
       hasAccessToken: !!user.whopAccessToken,
+      companiesCreated: whopCompanies.length,
     });
 
-    // Note: companyId is now optional (Solution 1 - no company requirement)
+    if (!user.companyId) {
+      console.warn("[OAuth Callback] User created without companyId", {
+        userId: user.id,
+        whopUserId: user.whopUserId,
+        companiesFound: whopCompanies.length,
+      });
+    }
+
     if (!user.whopProductId) {
       console.warn("[OAuth Callback] User created without whopProductId", {
         userId: user.id,
         whopUserId: user.whopUserId,
+        companyId: user.companyId,
       });
     }
 
