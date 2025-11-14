@@ -10,6 +10,7 @@ export const env = {
   NEXT_PUBLIC_WHOP_REDIRECT_URL: process.env.NEXT_PUBLIC_WHOP_REDIRECT_URL,
   WHOP_API_KEY: process.env.WHOP_API_KEY,
   WHOP_WEBHOOK_SECRET: process.env.WHOP_WEBHOOK_SECRET,
+  WHOP_FALLBACK_COMPANY_ID: process.env.WHOP_FALLBACK_COMPANY_ID, // Optional: fallback company ID if token doesn't include it
   
   // Cloudflare R2
   R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID ?? null,

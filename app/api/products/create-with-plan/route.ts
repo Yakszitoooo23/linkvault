@@ -44,9 +44,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Log authenticated user with warning if companyId is missing
+    // CRITICAL: Ensure companyId is present before proceeding
+    // Whop API requires company_id for product creation
     if (!whopUser.companyId) {
-      console.warn("[create-with-plan] ⚠️ Warning: companyId is undefined. This will likely break Whop product creation.");
+      console.error("[create-with-plan] ❌ ERROR: companyId is undefined. Cannot create Whop product without company_id.");
+      return NextResponse.json(
+        {
+          error: "Company ID required",
+          details: "Whop product creation requires a company_id, but it's missing from the authentication token.",
+          troubleshooting: {
+            issue: "companyId is undefined",
+            possibleCauses: [
+              "User token doesn't include company information",
+              "User is not associated with a company",
+              "WHOP_FALLBACK_COMPANY_ID not configured",
+            ],
+            solutions: [
+              "Set WHOP_FALLBACK_COMPANY_ID environment variable with your company ID (biz_xxx)",
+              "Ensure user is associated with a company in Whop",
+              "Check if token includes company_id in a different field",
+            ],
+          },
+        },
+        { status: 500 }
+      );
     }
     
     console.log("[create-with-plan] Authenticated user", {
@@ -54,6 +75,9 @@ export async function POST(req: NextRequest) {
       companyId: whopUser.companyId,
       hasCompanyId: !!whopUser.companyId,
     });
+    
+    // Log final companyId that will be used
+    console.log("[create-with-plan] Final companyId used for Whop product creation:", whopUser.companyId);
 
     // Parse request body
     const body = (await req.json()) as Partial<CreateProductWithPlanBody>;
@@ -343,23 +367,24 @@ async function createWhopProduct({
 }): Promise<string> {
   const endpoint = "https://api.whop.com/api/v2/products";
   
+  // CRITICAL: company_id is required for Whop product creation
+  // This function should only be called if companyId is defined
+  if (!companyId) {
+    throw new Error("companyId is required for Whop product creation but was not provided");
+  }
+
   const body: Record<string, unknown> = {
     name,
     visibility: "hidden",
+    company_id: companyId, // Always include company_id - it's required
   };
 
-  // Add company_id if available
-  // NOTE: Whop API may require company_id for product creation
-  if (companyId) {
-    body.company_id = companyId;
-    console.log("[createWhopProduct] Including company_id in request", {
-      companyId,
-      companyIdType: typeof companyId,
-      companyIdLength: companyId.length,
-    });
-  } else {
-    console.warn("[createWhopProduct] ⚠️ company_id is missing from request body. Whop API may reject this.");
-  }
+  console.log("[createWhopProduct] Including company_id in request", {
+    companyId,
+    companyIdType: typeof companyId,
+    companyIdLength: companyId.length,
+    note: "company_id is required for Whop API",
+  });
 
   // Log request details (safe - no full API key)
   const maskedApiKey = apiKey.length >= 6 ? `${apiKey.substring(0, 6)}***` : "***";
