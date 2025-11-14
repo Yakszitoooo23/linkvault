@@ -290,20 +290,6 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       );
     }
-      console.error("[create-with-plan] User missing OAuth access token", {
-        userId: user.id,
-        whopUserId: user.whopUserId,
-      });
-      return NextResponse.json(
-        {
-          error: "Authentication required",
-          details: "Your account needs to be authenticated. Please reinstall the app to refresh your tokens.",
-          hint: "Go to your Whop dashboard → Apps → Reinstall this app.",
-          action: "oauth_required",
-        },
-        { status: 401 }
-      );
-    }
 
     let accessToken = user.whopAccessToken;
     
