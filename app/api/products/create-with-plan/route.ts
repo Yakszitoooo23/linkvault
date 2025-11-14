@@ -269,10 +269,17 @@ export async function POST(req: NextRequest) {
         headerTokenType: headerToken ? "x-whop-user-token (session token)" : "none",
       });
 
-      // IMPORTANT: x-whop-user-token is a SESSION token, not an OAuth access token
-      // Session tokens cannot be used to create products via the API
-      // We need a real OAuth access token from the OAuth callback
-      const accessTokenToUse = user.whopAccessToken;
+      // For Whop Apps, we might be able to use the App API Key instead of OAuth tokens
+      // Try App API Key first, then OAuth token, then header token as last resort
+      const appApiKey = process.env.WHOP_API_KEY;
+      const accessTokenToUse = appApiKey || user.whopAccessToken;
+      
+      console.log("[create-with-plan] Token selection", {
+        hasAppApiKey: !!appApiKey,
+        hasUserOAuthToken: !!user.whopAccessToken,
+        usingAppApiKey: !!appApiKey,
+        usingOAuthToken: !appApiKey && !!user.whopAccessToken,
+      });
 
       if (!accessTokenToUse) {
         console.error("[create-with-plan] No OAuth access token available to create Whop product", {
