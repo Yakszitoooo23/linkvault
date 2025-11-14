@@ -210,20 +210,31 @@ export function CreateProductForm({ companyId }: CreateProductFormProps) {
         }
       }
 
+      // Log before submitting
+      console.log("[CreateProductForm] Submitting product with companyId:", companyId);
+      
+      const requestBody = {
+        title: formData.name.trim(),
+        description: formData.description.trim(),
+        priceCents: Math.round(parseFloat(formData.price) * 100),
+        currency: 'USD',
+        fileKey,
+        imageKey,
+        imageUrl: finalImageUrl,
+        companyId, // Include companyId from URL
+      };
+      
+      console.log("[CreateProductForm] Request body:", {
+        ...requestBody,
+        fileKey: requestBody.fileKey ? `${requestBody.fileKey.substring(0, 20)}...` : null,
+        imageKey: requestBody.imageKey ? `${requestBody.imageKey.substring(0, 20)}...` : null,
+      });
+
       // Create product
       const productResponse = await fetch("/api/products/create-with-plan", {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: formData.name.trim(),
-          description: formData.description.trim(),
-          priceCents: Math.round(parseFloat(formData.price) * 100),
-          currency: 'USD',
-          fileKey,
-          imageKey,
-          imageUrl: finalImageUrl,
-          companyId, // Include companyId from URL
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!productResponse.ok) {

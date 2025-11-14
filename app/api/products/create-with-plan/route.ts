@@ -47,6 +47,16 @@ export async function POST(req: NextRequest) {
 
     // Parse request body
     const body = (await req.json()) as Partial<CreateProductWithPlanBody>;
+    
+    // Log raw request body for debugging
+    console.log("[create-with-plan] Raw request body:", {
+      ...body,
+      fileKey: body.fileKey ? `${body.fileKey.substring(0, 20)}...` : null,
+      imageKey: body.imageKey ? `${body.imageKey.substring(0, 20)}...` : null,
+      hasCompanyId: !!body.companyId,
+      companyId: body.companyId,
+      companyIdType: typeof body.companyId,
+    });
 
     // Validate required fields
     if (!body.title || typeof body.priceCents !== "number" || !body.fileKey) {
@@ -58,7 +68,14 @@ export async function POST(req: NextRequest) {
 
     // CRITICAL: companyId must come from request body (URL-derived)
     if (!body.companyId || typeof body.companyId !== "string") {
-      console.error("[create-with-plan] ❌ ERROR: companyId is missing from request body");
+      console.error("[create-with-plan] ❌ ERROR: companyId is missing from request body", {
+        bodyKeys: Object.keys(body),
+        body: {
+          ...body,
+          fileKey: body.fileKey ? `${body.fileKey.substring(0, 20)}...` : null,
+          imageKey: body.imageKey ? `${body.imageKey.substring(0, 20)}...` : null,
+        },
+      });
       return NextResponse.json(
         {
           error: "Company ID required",
@@ -69,6 +86,8 @@ export async function POST(req: NextRequest) {
     }
 
     const companyId = body.companyId;
+    
+    console.log("[create-with-plan] Parsed companyId:", companyId);
     
     console.log("[create-with-plan] Authenticated user", {
       userId: whopUser.userId,
