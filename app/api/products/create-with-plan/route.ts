@@ -48,22 +48,30 @@ export async function POST(req: NextRequest) {
     // Whop API requires company_id for product creation
     if (!whopUser.companyId) {
       console.error("[create-with-plan] ❌ ERROR: companyId is undefined. Cannot create Whop product without company_id.");
+      console.error("[create-with-plan] Token analysis", {
+        userId: whopUser.userId,
+        tokenKeys: Object.keys(whopUser),
+        hasFallback: !!process.env.WHOP_FALLBACK_COMPANY_ID,
+        fallbackValue: process.env.WHOP_FALLBACK_COMPANY_ID ? "SET" : "NOT SET",
+      });
       return NextResponse.json(
         {
           error: "Company ID required",
           details: "Whop product creation requires a company_id, but it's missing from the authentication token.",
           troubleshooting: {
             issue: "companyId is undefined",
+            tokenContains: ["appId", "userId"], // Based on your logs
             possibleCauses: [
-              "User token doesn't include company information",
-              "User is not associated with a company",
-              "WHOP_FALLBACK_COMPANY_ID not configured",
+              "User token doesn't include company information (only has appId and userId)",
+              "User is not associated with a company in Whop",
+              "WHOP_FALLBACK_COMPANY_ID not configured in Vercel",
             ],
             solutions: [
-              "Set WHOP_FALLBACK_COMPANY_ID environment variable with your company ID (biz_xxx)",
-              "Ensure user is associated with a company in Whop",
-              "Check if token includes company_id in a different field",
+              "Set WHOP_FALLBACK_COMPANY_ID in Vercel environment variables with your company ID (format: biz_xxxxx)",
+              "To find your company ID: Check Whop dashboard URL or use Whop API",
+              "After setting WHOP_FALLBACK_COMPANY_ID, redeploy and try again",
             ],
+            immediateAction: "Go to Vercel → Settings → Environment Variables → Add WHOP_FALLBACK_COMPANY_ID = biz_xxxxx",
           },
         },
         { status: 500 }
