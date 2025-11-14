@@ -16,10 +16,26 @@ function getAccessTokenFromHeaders(headers: Headers): string | null {
     return authHeader.substring(7);
   }
   
-  // Try Whop user token (session token - might work for some API calls)
+  // Check for other possible OAuth token headers
+  const possibleTokenHeaders = [
+    "x-whop-access-token",
+    "x-whop-oauth-token",
+    "whop-access-token",
+    "whop-oauth-token",
+  ];
+  
+  for (const headerName of possibleTokenHeaders) {
+    const token = headers.get(headerName);
+    if (token) {
+      console.log(`[create-with-plan] Found ${headerName}, attempting to use it`);
+      return token;
+    }
+  }
+  
+  // Try Whop user token (session token - might work for some API calls, but probably won't)
   const whopUserToken = headers.get("x-whop-user-token");
   if (whopUserToken) {
-    console.log("[create-with-plan] Found x-whop-user-token, attempting to use it");
+    console.log("[create-with-plan] Found x-whop-user-token (session token, may not work for API calls)");
     return whopUserToken;
   }
   
@@ -128,14 +144,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const tokenData = await validateToken({ headers: headers() });
+    const requestHeaders = headers();
+    const tokenData = await validateToken({ headers: requestHeaders });
     
-    // Log the full token data to understand what we're getting
+    // Log the full token data and all headers to understand what we're getting
     console.log("[create-with-plan] Full token validation result", {
       tokenData: JSON.stringify(tokenData, null, 2),
       tokenDataType: typeof tokenData,
       tokenDataKeys: tokenData ? Object.keys(tokenData) : [],
     });
+    
+    // Log all headers to see if there's an OAuth token somewhere
+    const allHeaders: Record<string, string> = {};
+    requestHeaders.forEach((value, key) => {
+      allHeaders[key] = key.toLowerCase().includes('token') || key.toLowerCase().includes('auth') 
+        ? value.substring(0, 20) + '...' 
+        : value;
+    });
+    console.log("[create-with-plan] Request headers (tokens masked):", allHeaders);
 
     const { userId: whopUserId, companyId: tokenCompanyId } = (tokenData || {}) as {
       userId?: string;
