@@ -102,11 +102,12 @@ export async function POST(req: NextRequest) {
       select: { id: true, companyId: true },
     });
 
-    if (!user?.companyId) {
-      console.warn("Authenticated user not linked to company", { userId: user?.id });
-      return NextResponse.json({ error: "User not linked to a company" }, { status: 403 });
+    if (!user) {
+      console.warn("Authenticated user not found", { userId });
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    // SOLUTION 1: companyId is now optional, userId is required
     if (!body.title || typeof body.priceCents !== "number" || !body.fileKey) {
       return NextResponse.json(
         { error: "Missing required fields: title, priceCents, fileKey" },
@@ -114,9 +115,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.info("Creating product for company", {
-      companyId: user.companyId,
+    console.info("Creating product for user", {
       userId: user.id,
+      companyId: user.companyId,
       title: body.title,
     });
 
@@ -128,7 +129,8 @@ export async function POST(req: NextRequest) {
         currency: body.currency ?? "USD",
         fileKey: body.fileKey,
         imageKey: body.imageKey ?? null,
-        companyId: user.companyId,
+        userId: user.id, // Required: link to user
+        companyId: user.companyId, // Optional: for backward compatibility
       },
       include: {
         company: {
