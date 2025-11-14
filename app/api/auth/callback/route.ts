@@ -151,83 +151,31 @@ export async function GET(req: NextRequest) {
     const whopUser = await fetchWhopUser(access_token);
     console.log("[OAuth Callback] Whop user fetched", { whopUserId: whopUser.id });
 
-    console.log("[OAuth Callback] Fetching Whop companies...");
-    const companies = await fetchWhopCompanies(access_token);
-    console.log("[OAuth Callback] Companies fetched", {
-      count: companies.length,
-      companies: companies.map((c) => ({ id: c.id, name: c.name })),
-    });
-
-    if (companies.length === 0) {
-      console.error("[OAuth Callback] CRITICAL: No Whop companies found for user", {
-        whopUserId: whopUser.id,
-        accessToken: access_token.substring(0, 20) + "...",
-      });
-      // Still proceed but log the issue - user might need to create a company first
-    }
-
+    // SOLUTION 1: Create Whop product per user (not per company)
+    console.log("[OAuth Callback] Creating Whop product for user...");
+    
     const tokenExpiresAt = new Date(Date.now() + (expires_in ?? 3600) * 1000);
-
-    const installedCompanyIds: string[] = [];
-
-    for (const company of companies) {
-      try {
-        console.log("[OAuth Callback] Processing company installation", {
-          companyId: company.id,
-          companyName: company.name,
-        });
-
-        const whopProductId = await ensureCompanyProduct(access_token);
-        console.log("[OAuth Callback] Company product ensured", {
-          companyId: company.id,
-          whopProductId,
-        });
-
-        const upsertedCompany = await prisma.company.upsert({
-          where: { whopCompanyId: company.id },
-          create: {
-            whopCompanyId: company.id,
-            name: company.name,
-            whopAccessToken: access_token,
-            whopRefreshToken: refresh_token,
-            tokenExpiresAt,
-            whopProductId,
-            isActive: true,
-            installedAt: new Date(),
-          },
-          update: {
-            name: company.name,
-            whopAccessToken: access_token,
-            whopRefreshToken: refresh_token,
-            tokenExpiresAt,
-            whopProductId,
-            isActive: true,
-            updatedAt: new Date(),
-          },
-        });
-
-        console.log("[OAuth Callback] Company upserted successfully", {
-          companyId: company.id,
-          internalId: upsertedCompany.id,
-        });
-
-        installedCompanyIds.push(upsertedCompany.id);
-      } catch (companyError) {
-        console.error("[OAuth Callback] Failed to process company installation", {
-          companyId: company.id,
-          companyName: company.name,
-          error: companyError instanceof Error ? companyError.message : String(companyError),
-          stack: companyError instanceof Error ? companyError.stack : undefined,
-        });
-      }
+    
+    let whopProductId: string | null = null;
+    try {
+      whopProductId = await ensureCompanyProduct(access_token);
+      console.log("[OAuth Callback] User Whop product created", {
+        whopUserId: whopUser.id,
+        whopProductId,
+      });
+    } catch (productError) {
+      console.error("[OAuth Callback] Failed to create Whop product for user", {
+        whopUserId: whopUser.id,
+        error: productError instanceof Error ? productError.message : String(productError),
+      });
+      // Continue anyway - product can be created later
     }
 
-    const firstCompanyId = installedCompanyIds[0] ?? null;
-
-    console.log("[OAuth Callback] Linking user to company", {
-      whopUserId: whopUser.id,
-      firstCompanyId,
-      installedCompanyIds,
+    // Update or create user with OAuth tokens and product ID
+    // First check if user exists to preserve existing whopProductId
+    const existingUser = await prisma.user.findUnique({
+      where: { whopUserId: whopUser.id },
+      select: { whopProductId: true },
     });
 
     const user = await prisma.user.upsert({
@@ -235,10 +183,17 @@ export async function GET(req: NextRequest) {
       create: {
         whopUserId: whopUser.id,
         role: "seller",
-        companyId: firstCompanyId ?? undefined,
+        whopProductId: whopProductId ?? undefined,
+        whopAccessToken: access_token,
+        whopRefreshToken: refresh_token,
+        tokenExpiresAt,
       },
       update: {
-        companyId: firstCompanyId ?? undefined,
+        // Only update whopProductId if we got a new one, otherwise keep existing
+        whopProductId: whopProductId ?? existingUser?.whopProductId ?? undefined,
+        whopAccessToken: access_token,
+        whopRefreshToken: refresh_token,
+        tokenExpiresAt,
       },
     });
 

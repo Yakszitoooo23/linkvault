@@ -143,9 +143,9 @@ export async function POST(req: NextRequest) {
     let user = await prisma.user.findUnique({
       where: { whopUserId },
       include: {
-        company: true,
+        company: true, // Keep for backward compatibility
       },
-    });
+    }) as any; // Type assertion needed until migration is applied
 
     console.log("[create-with-plan] User lookup by whopUserId", {
       searchedFor: whopUserId,
@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
         include: {
           company: true,
         },
-      });
+      }) as any; // Type assertion needed until migration is applied
       console.log("[create-with-plan] User lookup by id", {
         searchedFor: whopUserId,
         found: !!user,
@@ -181,17 +181,17 @@ export async function POST(req: NextRequest) {
       });
 
       // Create user immediately with companyId: null
-      // OAuth callback will update with company info later when user installs the app
+      // OAuth callback will update with OAuth tokens and product ID later when user installs the app
       user = await prisma.user.create({
         data: {
           whopUserId,
           role: "seller",
-          companyId: null, // Will be set when OAuth runs
+          companyId: null, // Will be set when OAuth runs (optional)
         },
         include: {
           company: true,
         },
-      });
+      }) as any; // Type assertion needed until migration is applied
 
       console.log("[create-with-plan] User created on first use", {
         userId: user.id,
@@ -201,76 +201,102 @@ export async function POST(req: NextRequest) {
     }
 
 
-    // If user doesn't have a company but token has companyId, try to link it
-    if (!user.company && tokenCompanyId) {
-      console.log("[create-with-plan] User missing company, attempting to link from token", {
-        userId: user.id,
-        tokenCompanyId,
-      });
-
-      const company = await prisma.company.findUnique({
-        where: { whopCompanyId: tokenCompanyId },
-      });
-
-      if (company) {
-        console.log("[create-with-plan] Found company from token, linking user", {
-          userId: user.id,
-          companyId: company.id,
-        });
-        user = await prisma.user.update({
-          where: { id: user.id },
-          data: { companyId: company.id },
-          include: { company: true },
-        });
-      } else {
-        console.warn("[create-with-plan] Company from token not found in database", {
-          tokenCompanyId,
-        });
-      }
-    }
-
-    // Check if user has a company (required for product creation)
-    if (!user.company) {
-      console.error("[create-with-plan] User is not linked to a Whop company", {
+    // SOLUTION 1: Use user's product and tokens (no company required)
+    if (!user.whopProductId || !user.whopAccessToken) {
+      console.error("[create-with-plan] User missing Whop product", {
         userId: user.id,
         whopUserId: user.whopUserId,
-        companyId: user.companyId,
-        tokenCompanyId,
       });
-      
-      // Solution A: User was created on first use, but needs OAuth to get company
       return NextResponse.json(
         {
-          error: "Company setup required",
-          details: "Your account has been created, but you need to complete the app installation to set up your company.",
-          hint: "Go to your Whop dashboard → Apps → Install this app. This will link your account to your company and enable product creation.",
+          error: "Product setup required",
+          details: "Your account needs to be set up with a Whop product. Please complete the app installation.",
+          hint: "Go to your Whop dashboard → Apps → Install this app. This will set up your account and enable product creation.",
           action: "oauth_required",
-          userId: user.id, // Return user ID so frontend knows user exists
+          userId: user.id,
         },
         { status: 403 }
       );
     }
 
-    const company = user.company;
-
-    if (!company.whopProductId) {
-      console.error("Company missing Whop product", {
-        companyId: company.id,
-        whopCompanyId: company.whopCompanyId,
+    // Ensure user's access token is valid (refresh if needed)
+    if (!user.whopAccessToken) {
+      console.error("[create-with-plan] User missing OAuth access token", {
+        userId: user.id,
+        whopUserId: user.whopUserId,
       });
       return NextResponse.json(
-        { error: "Company is not configured with a Whop product. Please reinstall the app." },
-        { status: 400 }
+        {
+          error: "Authentication required",
+          details: "Your account needs to be authenticated. Please reinstall the app to refresh your tokens.",
+          hint: "Go to your Whop dashboard → Apps → Reinstall this app.",
+          action: "oauth_required",
+        },
+        { status: 401 }
       );
     }
 
-    const accessToken = await ensureCompanyAccessToken({
-      id: company.id,
-      whopAccessToken: company.whopAccessToken,
-      whopRefreshToken: company.whopRefreshToken,
-      tokenExpiresAt: company.tokenExpiresAt,
-    });
+    let accessToken = user.whopAccessToken;
+    
+    if (user.tokenExpiresAt && user.tokenExpiresAt.getTime() <= Date.now()) {
+      // Token expired, try to refresh
+      if (!user.whopRefreshToken) {
+        return NextResponse.json(
+          {
+            error: "Token expired",
+            details: "Your authentication token has expired. Please reinstall the app to refresh it.",
+            hint: "Go to your Whop dashboard → Apps → Reinstall this app.",
+            action: "oauth_required",
+          },
+          { status: 401 }
+        );
+      }
 
+      // Refresh token using the same logic as ensureCompanyAccessToken
+      const refreshResponse = await fetch("https://api.whop.com/api/v2/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "refresh_token",
+          refresh_token: user.whopRefreshToken,
+          client_id: process.env.WHOP_CLIENT_ID,
+          client_secret: process.env.WHOP_CLIENT_SECRET,
+        }),
+      });
+
+      if (!refreshResponse.ok) {
+        return NextResponse.json(
+          {
+            error: "Token refresh failed",
+            details: "Failed to refresh your authentication token. Please reinstall the app.",
+            hint: "Go to your Whop dashboard → Apps → Reinstall this app.",
+            action: "oauth_required",
+          },
+          { status: 401 }
+        );
+      }
+
+      const tokenData = (await refreshResponse.json()) as {
+        access_token: string;
+        refresh_token?: string;
+        expires_in?: number;
+      };
+
+      accessToken = tokenData.access_token;
+      const newExpiresAt = new Date(Date.now() + ((tokenData.expires_in ?? 3600) * 1000));
+
+      // Update user with new tokens
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          whopAccessToken: tokenData.access_token,
+          whopRefreshToken: tokenData.refresh_token ?? user.whopRefreshToken,
+          tokenExpiresAt: newExpiresAt,
+        } as any, // Type assertion needed until migration is applied
+      });
+    }
+
+    // Create product linked to user
     const product = await prisma.product.create({
       data: {
         title: body.title,
@@ -280,19 +306,21 @@ export async function POST(req: NextRequest) {
         fileKey: body.fileKey,
         imageKey: body.imageKey ?? null,
         imageUrl: body.imageUrl ?? null,
-        companyId: company.id,
-      },
+        userId: user.id, // Link to user instead of company
+        companyId: user.companyId, // Keep for backward compatibility (nullable)
+      } as any, // Type assertion needed until migration is applied
     });
 
     try {
       const planId = await createCompanyPlan({
         accessToken,
-        whopProductId: company.whopProductId,
+        whopProductId: user.whopProductId,
         priceCents: product.priceCents,
         currency: product.currency.toLowerCase(),
         metadata: {
           linkVaultProductId: product.id,
-          companyId: company.whopCompanyId,
+          userId: user.id,
+          whopUserId: user.whopUserId,
         },
       });
 

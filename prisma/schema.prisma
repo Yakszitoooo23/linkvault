@@ -8,13 +8,18 @@ datasource db {
 }
 
 model User {
-  id         String   @id @default(cuid())
-  whopUserId String   @unique
-  role       String   @default("buyer")
-  companyId  String?
-  company    Company? @relation(fields: [companyId], references: [id])
-  createdAt  DateTime @default(now())
-  purchases  Purchase[]
+  id               String     @id @default(cuid())
+  whopUserId       String     @unique
+  role             String     @default("buyer")
+  companyId        String? // Optional - kept for backward compatibility
+  company          Company?   @relation(fields: [companyId], references: [id])
+  whopProductId    String? // Whop product ID for this user's digital products
+  whopAccessToken  String? // OAuth access token for this user
+  whopRefreshToken String? // OAuth refresh token for this user
+  tokenExpiresAt   DateTime? // When the access token expires
+  createdAt        DateTime   @default(now())
+  purchases        Purchase[]
+  products         Product[] // Products created by this user
 }
 
 model Company {
@@ -33,22 +38,24 @@ model Company {
 }
 
 model Product {
-  id          String    @id @default(cuid())
-  companyId   String
-  company     Company   @relation(fields: [companyId], references: [id])
+  id          String     @id @default(cuid())
+  userId      String // User who created this product
+  user        User       @relation(fields: [userId], references: [id])
+  companyId   String? // Optional - kept for backward compatibility during migration
+  company     Company?   @relation(fields: [companyId], references: [id])
   title       String
   description String?
   priceCents  Int
-  currency    String    @default("USD")
+  currency    String     @default("USD")
   fileKey     String
-  imageKey    String?   // Legacy image field
-  imageUrl    String?   @db.VarChar(1024)
-  whopPlanId  String?   @db.VarChar(191)
+  imageKey    String? // Legacy image field
+  imageUrl    String?    @db.VarChar(1024)
+  whopPlanId  String?    @db.VarChar(191)
   planId      String?
-  version     Int       @default(1)
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  version     Int        @default(1)
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   purchases   Purchase[]
 }
 
