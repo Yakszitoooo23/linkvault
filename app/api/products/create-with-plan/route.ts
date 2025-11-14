@@ -370,7 +370,8 @@ async function createWhopProduct({
   companyId?: string;
   name: string;
 }): Promise<string> {
-  const endpoint = "https://api.whop.com/api/v2/products";
+  // Use new Products endpoint (no /api/v2)
+  const endpoint = "https://api.whop.com/products";
   
   // CRITICAL: company_id is required for Whop product creation
   // This function should only be called if companyId is defined
@@ -383,6 +384,13 @@ async function createWhopProduct({
     visibility: "hidden",
     company_id: companyId, // Always include company_id - it's required
   };
+
+  // Log that we're using the new endpoint
+  console.log("[createWhopProduct] Calling new Products endpoint", {
+    endpoint,
+    hasCompanyId: !!companyId,
+    companyIdUsed: companyId,
+  });
 
   console.log("[createWhopProduct] Including company_id in request", {
     companyId,
