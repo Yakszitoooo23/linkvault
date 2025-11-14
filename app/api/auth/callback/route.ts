@@ -130,8 +130,37 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(redirectUrl.toString());
     }
 
+    // Whop Apps might not use standard OAuth flow - check if we can get token from validateToken
     if (!code) {
-      console.error("[OAuth Callback] Missing authorization code");
+      console.log("[OAuth Callback] No code parameter - checking if this is a Whop Apps installation");
+      console.log("[OAuth Callback] Request headers:", {
+        headers: Object.fromEntries(req.headers.entries()),
+      });
+      
+      // Try to get token from validateToken (Whop Apps SDK)
+      try {
+        const { validateToken } = await import("@whop-apps/sdk");
+        const tokenData = await validateToken({ headers: req.headers });
+        console.log("[OAuth Callback] validateToken result:", {
+          hasTokenData: !!tokenData,
+          tokenDataKeys: tokenData ? Object.keys(tokenData) : [],
+        });
+        
+        // If we have token data but no code, this might be a direct app installation
+        // In this case, we might need to redirect to OAuth manually or handle differently
+        if (tokenData) {
+          console.log("[OAuth Callback] Got token data without code - this might be a Whop Apps installation");
+          // For now, redirect to a page that explains OAuth is needed
+          const redirectUrl = new URL(env.NEXT_PUBLIC_WHOP_REDIRECT_URL || "/");
+          redirectUrl.searchParams.set("error", "oauth_required");
+          redirectUrl.searchParams.set("message", "Please complete OAuth authorization");
+          return NextResponse.redirect(redirectUrl.toString());
+        }
+      } catch (validateError) {
+        console.error("[OAuth Callback] validateToken failed:", validateError);
+      }
+      
+      console.error("[OAuth Callback] Missing authorization code and no token data available");
       return NextResponse.json({ error: "Missing authorization code" }, { status: 400 });
     }
 
