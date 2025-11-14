@@ -1,4 +1,6 @@
+import { headers } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import { validateToken } from "@whop-apps/sdk";
 
 import { prisma } from "@/lib/db";
 
@@ -17,14 +19,36 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as Partial<CreateProductBody>;
     console.log("Product creation request body:", JSON.stringify(body, null, 2));
 
-    const companyIdFromBody = (body as any).companyId as string | undefined;
-    if (!companyIdFromBody) {
-      console.error("Legacy product creation missing companyId");
+    // Get authenticated user (required for userId)
+    const tokenData = await validateToken({ headers: headers() });
+    const { userId: whopUserId } = (tokenData || {}) as {
+      userId?: string;
+      [key: string]: unknown;
+    };
+
+    if (!whopUserId) {
       return NextResponse.json(
-        { error: "Company context missing. Please use the company dashboard to create products." },
-        { status: 400 }
+        { error: "Authentication required" },
+        { status: 401 }
       );
     }
+
+    // Find user to get their internal ID
+    const user = await prisma.user.findUnique({
+      where: { whopUserId },
+      select: { id: true, companyId: true },
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "User not found. Please install the app first." },
+        { status: 404 }
+      );
+    }
+
+    // Get companyId from body (for backward compatibility) or from user
+    const companyIdFromBody = (body as any).companyId as string | undefined;
+    const companyId = companyIdFromBody || user.companyId || null;
 
     if (!body.title || typeof body.priceCents !== "number" || !body.fileKey) {
       console.error("Missing required fields", {
@@ -52,7 +76,8 @@ export async function POST(req: NextRequest) {
     }
 
     console.info("Creating product via legacy endpoint", {
-      companyId: companyIdFromBody,
+      userId: user.id,
+      companyId,
       title: body.title,
     });
 
@@ -65,7 +90,8 @@ export async function POST(req: NextRequest) {
         fileKey: body.fileKey,
         imageKey: body.imageKey ?? null,
         imageUrl: body.imageUrl ?? null,
-        companyId: companyIdFromBody,
+        userId: user.id, // Required: link to user
+        companyId, // Optional: for backward compatibility
       },
     });
 
