@@ -245,11 +245,13 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const redirectUrl = new URL(env.NEXT_PUBLIC_WHOP_REDIRECT_URL || "/experience");
-    redirectUrl.searchParams.set("success", "true");
-    redirectUrl.searchParams.set("userId", user.id);
+    // Redirect to a page, NOT back to the callback URL (which would cause a redirect loop)
+    // Use /experience or /dashboard or just / as the success page
+    const successUrl = new URL("/experience", req.url);
+    successUrl.searchParams.set("success", "true");
+    successUrl.searchParams.set("userId", user.id);
 
-    return NextResponse.redirect(redirectUrl.toString(), {
+    return NextResponse.redirect(successUrl.toString(), {
       headers: {
         "Set-Cookie": `whop_user_id=${user.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}; ${process.env.NODE_ENV === "production" ? "Secure;" : ""}`,
       },
@@ -259,9 +261,10 @@ export async function GET(req: NextRequest) {
       error: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
     });
-    const redirectUrl = new URL(env.NEXT_PUBLIC_WHOP_REDIRECT_URL || "/");
-    redirectUrl.searchParams.set("error", "internal_error");
-    return NextResponse.redirect(redirectUrl.toString());
+    // Redirect to home page on error, NOT back to callback
+    const errorUrl = new URL("/", req.url);
+    errorUrl.searchParams.set("error", "internal_error");
+    return NextResponse.redirect(errorUrl.toString());
   }
 }
 
