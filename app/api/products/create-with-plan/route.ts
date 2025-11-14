@@ -74,10 +74,13 @@ async function fetchWhopCompanies(accessToken: string): Promise<Array<{ id: stri
 
 // Helper to ensure company product exists
 async function ensureCompanyProduct(accessToken: string): Promise<string> {
+  const isApiKey = accessToken.startsWith("apik_");
   console.log("[ensureCompanyProduct] Attempting to create Whop product", {
     tokenLength: accessToken.length,
     tokenPrefix: accessToken.substring(0, 20) + "...",
     endpoint: "https://api.whop.com/api/v5/products",
+    usingApiKey: isApiKey,
+    usingOAuthToken: !isApiKey,
   });
 
   const response = await fetch("https://api.whop.com/api/v5/products", {
