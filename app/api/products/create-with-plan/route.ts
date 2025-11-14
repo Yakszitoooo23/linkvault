@@ -11,10 +11,19 @@ import {
 
 // Helper to extract access token from request headers
 function getAccessTokenFromHeaders(headers: Headers): string | null {
+  // Try standard OAuth Bearer token first
   const authHeader = headers.get("authorization") || headers.get("Authorization");
   if (authHeader?.startsWith("Bearer ")) {
     return authHeader.substring(7);
   }
+  
+  // Try Whop user token (session token - might work for some API calls)
+  const whopUserToken = headers.get("x-whop-user-token");
+  if (whopUserToken) {
+    console.log("[create-with-plan] Found x-whop-user-token, attempting to use it");
+    return whopUserToken;
+  }
+  
   return null;
 }
 
@@ -201,11 +210,22 @@ export async function POST(req: NextRequest) {
       });
 
       const accessToken = getAccessTokenFromHeaders(requestHeaders);
+      const whopUserToken = requestHeaders.get("x-whop-user-token");
+      const whopAppId = requestHeaders.get("x-whop-app-id");
+
+      console.log("[create-with-plan] Token extraction", {
+        hasAccessToken: !!accessToken,
+        hasWhopUserToken: !!whopUserToken,
+        hasWhopAppId: !!whopAppId,
+        tokenType: accessToken ? (accessToken === whopUserToken ? "x-whop-user-token" : "Bearer") : "none",
+      });
 
       if (!accessToken) {
         console.error("[create-with-plan] No access token available to create user", {
           whopUserId,
           availableHeaders: Object.keys(allHeaders),
+          whopUserToken: whopUserToken ? "present" : "missing",
+          whopAppId: whopAppId || "missing",
         });
         
         // Since we can't get the OAuth token from headers, the user must go through OAuth first
@@ -213,8 +233,9 @@ export async function POST(req: NextRequest) {
           { 
             error: "User not found. Please install the app first.",
             details: `No user found with ID: ${whopUserId}. You need to install this app through Whop's OAuth flow to create products.`,
-            hint: "Go to your Whop dashboard → Apps → Install this app, or reinstall it if already installed.",
+            hint: "Go to your Whop dashboard → Apps → Install this app, or reinstall it if already installed. Make sure the OAuth redirect URL is set correctly.",
             action: "install_required",
+            oauthUrl: "/api/auth/callback", // This is where OAuth should redirect
           },
           { status: 403 }
         );
@@ -222,8 +243,32 @@ export async function POST(req: NextRequest) {
 
       try {
         console.log("[create-with-plan] Fetching user and company info from Whop API...");
-        const whopUser = await fetchWhopUserInfo(accessToken);
-        const companies = await fetchWhopCompanies(accessToken);
+        console.log("[create-with-plan] Using token type:", accessToken === whopUserToken ? "x-whop-user-token (session)" : "OAuth Bearer");
+        
+        let whopUser: { id: string };
+        let companies: Array<{ id: string; name: string }>;
+        
+        try {
+          whopUser = await fetchWhopUserInfo(accessToken);
+          companies = await fetchWhopCompanies(accessToken);
+        } catch (apiError) {
+          // If the token doesn't work (e.g., x-whop-user-token can't make API calls), 
+          // the user needs to go through OAuth
+          console.error("[create-with-plan] Failed to fetch from Whop API with token", {
+            error: apiError instanceof Error ? apiError.message : String(apiError),
+            tokenType: accessToken === whopUserToken ? "x-whop-user-token" : "Bearer",
+          });
+          
+          return NextResponse.json(
+            { 
+              error: "Authentication failed. Please install the app first.",
+              details: "The session token cannot be used to fetch user information. You need to go through OAuth to get proper access tokens.",
+              hint: "Go to your Whop dashboard → Apps → Install this app, or reinstall it if already installed.",
+              action: "install_required",
+            },
+            { status: 403 }
+          );
+        }
 
         console.log("[create-with-plan] Fetched from Whop API", {
           whopUserId: whopUser.id,
