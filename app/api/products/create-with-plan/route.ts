@@ -202,25 +202,94 @@ export async function POST(req: NextRequest) {
 
 
     // SOLUTION 1: Use user's product and tokens (no company required)
-    if (!user.whopProductId || !user.whopAccessToken) {
-      console.error("[create-with-plan] User missing Whop product", {
+    // If user doesn't have whopProductId, try to create it on-demand
+    if (!user.whopProductId) {
+      console.log("[create-with-plan] User missing whopProductId, attempting to create on-demand", {
+        userId: user.id,
+        whopUserId: user.whopUserId,
+        hasAccessToken: !!user.whopAccessToken,
+      });
+
+      // Try to get access token from user or request headers
+      const requestHeaders = headers();
+      const headerToken = getAccessTokenFromHeaders(requestHeaders);
+      const accessTokenToUse = user.whopAccessToken || headerToken;
+
+      if (!accessTokenToUse) {
+        console.error("[create-with-plan] No access token available to create Whop product", {
+          userId: user.id,
+          hasUserToken: !!user.whopAccessToken,
+          hasHeaderToken: !!headerToken,
+        });
+        return NextResponse.json(
+          {
+            error: "Product setup required",
+            details: "Your account needs to be set up with a Whop product. Please complete the app installation.",
+            hint: "Go to your Whop dashboard → Apps → Install this app. This will set up your account and enable product creation.",
+            action: "oauth_required",
+            userId: user.id,
+          },
+          { status: 403 }
+        );
+      }
+
+      try {
+        console.log("[create-with-plan] Creating Whop product on-demand...");
+        const whopProductId = await ensureCompanyProduct(accessTokenToUse);
+        
+        // Update user with the new product ID and tokens
+        const updateData: any = { whopProductId };
+        if (headerToken && !user.whopAccessToken) {
+          updateData.whopAccessToken = headerToken;
+          updateData.tokenExpiresAt = new Date(Date.now() + 3600 * 1000); // Assume 1 hour
+        }
+
+        await prisma.user.update({
+          where: { id: user.id },
+          data: updateData,
+        });
+
+        // Update user object for rest of function
+        (user as any).whopProductId = whopProductId;
+        (user as any).whopAccessToken = accessTokenToUse;
+
+        console.log("[create-with-plan] Whop product created on-demand", {
+          userId: user.id,
+          whopProductId,
+        });
+      } catch (productError) {
+        console.error("[create-with-plan] Failed to create Whop product on-demand", {
+          userId: user.id,
+          error: productError instanceof Error ? productError.message : String(productError),
+        });
+        return NextResponse.json(
+          {
+            error: "Failed to set up Whop product",
+            details: productError instanceof Error ? productError.message : "Unknown error",
+            hint: "Please try reinstalling the app from the Whop dashboard.",
+            action: "oauth_required",
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Ensure user's access token is valid (refresh if needed)
+    if (!user.whopAccessToken) {
+      console.error("[create-with-plan] User missing OAuth access token", {
         userId: user.id,
         whopUserId: user.whopUserId,
       });
       return NextResponse.json(
         {
-          error: "Product setup required",
-          details: "Your account needs to be set up with a Whop product. Please complete the app installation.",
-          hint: "Go to your Whop dashboard → Apps → Install this app. This will set up your account and enable product creation.",
+          error: "Authentication required",
+          details: "Your account needs to be authenticated. Please reinstall the app to refresh your tokens.",
+          hint: "Go to your Whop dashboard → Apps → Reinstall this app.",
           action: "oauth_required",
-          userId: user.id,
         },
-        { status: 403 }
+        { status: 401 }
       );
     }
-
-    // Ensure user's access token is valid (refresh if needed)
-    if (!user.whopAccessToken) {
       console.error("[create-with-plan] User missing OAuth access token", {
         userId: user.id,
         whopUserId: user.whopUserId,
