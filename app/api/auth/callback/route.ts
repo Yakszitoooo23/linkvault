@@ -128,7 +128,7 @@ async function fetchWhopCompanies(accessToken: string): Promise<WhopCompany[]> {
 }
 
 async function ensureCompanyProduct(accessToken: string): Promise<string> {
-  const response = await fetch("https://api.whop.com/api/v5/products", {
+  const response = await fetch("https://api.whop.com/api/v2/products", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,

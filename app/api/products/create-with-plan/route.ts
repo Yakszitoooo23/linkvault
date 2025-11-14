@@ -78,12 +78,12 @@ async function ensureCompanyProduct(accessToken: string): Promise<string> {
   console.log("[ensureCompanyProduct] Attempting to create Whop product", {
     tokenLength: accessToken.length,
     tokenPrefix: accessToken.substring(0, 20) + "...",
-    endpoint: "https://api.whop.com/api/v5/products",
+    endpoint: "https://api.whop.com/api/v2/products",
     usingApiKey: isApiKey,
     usingOAuthToken: !isApiKey,
   });
 
-  const response = await fetch("https://api.whop.com/api/v5/products", {
+  const response = await fetch("https://api.whop.com/api/v2/products", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
