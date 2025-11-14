@@ -31,27 +31,52 @@ export async function POST(req: NextRequest) {
     }
 
     const tokenData = await validateToken({ headers: headers() });
-    const { userId: whopUserId, companyId: tokenCompanyId } = tokenData as {
-      userId: string;
+    
+    // Log the full token data to understand what we're getting
+    console.log("[create-with-plan] Full token validation result", {
+      tokenData: JSON.stringify(tokenData, null, 2),
+      tokenDataType: typeof tokenData,
+      tokenDataKeys: tokenData ? Object.keys(tokenData) : [],
+    });
+
+    const { userId: whopUserId, companyId: tokenCompanyId } = (tokenData || {}) as {
+      userId?: string;
       companyId?: string;
+      [key: string]: unknown;
     };
 
-    console.log("[create-with-plan] Token validation result", {
+    console.log("[create-with-plan] Extracted token values", {
       userId: whopUserId,
       tokenCompanyId,
-      tokenDataKeys: Object.keys(tokenData || {}),
+      userIdType: typeof whopUserId,
+      userIdLength: whopUserId?.length,
     });
 
     if (!whopUserId) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+      console.error("[create-with-plan] No userId in token", { tokenData });
+      return NextResponse.json(
+        { 
+          error: "Authentication required",
+          details: "No user ID found in authentication token. Please reinstall the app.",
+        },
+        { status: 401 }
+      );
     }
 
-    // Try to find user by whopUserId first (from token)
+    // Try to find user by whopUserId first (from token - this should be the Whop user ID like usr_xxx)
     let user = await prisma.user.findUnique({
       where: { whopUserId },
       include: {
         company: true,
       },
+    });
+
+    console.log("[create-with-plan] User lookup by whopUserId", {
+      searchedFor: whopUserId,
+      found: !!user,
+      userId: user?.id,
+      userWhopUserId: user?.whopUserId,
+      userCompanyId: user?.companyId,
     });
 
     // If not found, try by internal id (validateToken might return internal id)
@@ -65,14 +90,44 @@ export async function POST(req: NextRequest) {
           company: true,
         },
       });
+      console.log("[create-with-plan] User lookup by id", {
+        searchedFor: whopUserId,
+        found: !!user,
+        userId: user?.id,
+      });
+    }
+
+    // If still not found, list all users for debugging (only in development)
+    if (!user && process.env.NODE_ENV !== "production") {
+      const allUsers = await prisma.user.findMany({
+        select: {
+          id: true,
+          whopUserId: true,
+          companyId: true,
+        },
+        take: 10,
+      });
+      console.log("[create-with-plan] Available users in database", {
+        count: allUsers.length,
+        users: allUsers,
+        searchedFor: whopUserId,
+      });
     }
 
     if (!user) {
-      console.error("[create-with-plan] User not found", {
+      console.error("[create-with-plan] User not found after all attempts", {
         whopUserId,
         searchedBy: ["whopUserId", "id"],
+        tokenCompanyId,
       });
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+      return NextResponse.json(
+        { 
+          error: "User not found",
+          details: `No user found with ID: ${whopUserId}. Please ensure you have installed the app through Whop's OAuth flow.`,
+          hint: "Try reinstalling the app from the Whop dashboard.",
+        },
+        { status: 404 }
+      );
     }
 
     // If user doesn't have a company but token has companyId, try to link it
