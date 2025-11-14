@@ -113,11 +113,14 @@ export async function GET(req: NextRequest) {
     const error = searchParams.get("error");
     const state = searchParams.get("state"); // May contain company context
 
-    console.log("[OAuth Callback] Starting OAuth callback", {
+    // IMPORTANT: This log should appear in Vercel logs when OAuth callback is called
+    console.log("[OAuth Callback] ====== CALLBACK CALLED ======", {
+      timestamp: new Date().toISOString(),
       hasCode: !!code,
       hasError: !!error,
       hasState: !!state,
       allParams: Object.fromEntries(searchParams.entries()),
+      url: req.url,
     });
 
     if (error) {
