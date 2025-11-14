@@ -125,9 +125,10 @@ export async function GET(req: NextRequest) {
 
     if (error) {
       console.error("[OAuth Callback] OAuth error:", error);
-      const redirectUrl = new URL(env.NEXT_PUBLIC_WHOP_REDIRECT_URL || "/");
-      redirectUrl.searchParams.set("error", error);
-      return NextResponse.redirect(redirectUrl.toString());
+      // Redirect to home page on OAuth error, NOT back to callback
+      const errorUrl = new URL("/", req.url);
+      errorUrl.searchParams.set("error", error);
+      return NextResponse.redirect(errorUrl.toString());
     }
 
     // Whop Apps might not use standard OAuth flow - check if we can get token from validateToken
@@ -150,8 +151,8 @@ export async function GET(req: NextRequest) {
         // In this case, we might need to redirect to OAuth manually or handle differently
         if (tokenData) {
           console.log("[OAuth Callback] Got token data without code - this might be a Whop Apps installation");
-          // For now, redirect to a page that explains OAuth is needed
-          const redirectUrl = new URL(env.NEXT_PUBLIC_WHOP_REDIRECT_URL || "/");
+          // Redirect to home page explaining OAuth is needed, NOT back to callback
+          const redirectUrl = new URL("/", req.url);
           redirectUrl.searchParams.set("error", "oauth_required");
           redirectUrl.searchParams.set("message", "Please complete OAuth authorization");
           return NextResponse.redirect(redirectUrl.toString());
