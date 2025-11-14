@@ -29,22 +29,39 @@ type WhopProductResponse = {
 };
 
 async function exchangeCodeForTokens(code: string): Promise<WhopTokenResponse> {
-  // Try form-encoded data (standard OAuth 2.0 format)
+  // Try Basic Auth with form-encoded data (OAuth 2.0 standard)
+  const basicAuth = Buffer.from(
+    `${env.WHOP_CLIENT_ID}:${env.WHOP_CLIENT_SECRET}`
+  ).toString("base64");
+
   const params = new URLSearchParams({
     grant_type: "authorization_code",
-    client_id: env.WHOP_CLIENT_ID!,
-    client_secret: env.WHOP_CLIENT_SECRET!,
     code,
     redirect_uri: env.NEXT_PUBLIC_WHOP_REDIRECT_URL!,
   });
 
-  const response = await fetch("https://api.whop.com/api/v2/oauth/token", {
+  // Try v2 endpoint first (standard OAuth endpoint)
+  let response = await fetch("https://api.whop.com/api/v2/oauth/token", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: `Basic ${basicAuth}`,
     },
     body: params.toString(),
   });
+
+  // If v2 fails, try v5
+  if (!response.ok && response.status === 404) {
+    console.log("[OAuth Callback] v2 endpoint failed, trying v5...");
+    response = await fetch("https://api.whop.com/api/v5/oauth/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${basicAuth}`,
+      },
+      body: params.toString(),
+    });
+  }
 
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => null);
