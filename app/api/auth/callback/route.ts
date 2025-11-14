@@ -166,8 +166,14 @@ export async function GET(req: NextRequest) {
     }
 
     if (!env.WHOP_CLIENT_ID || !env.WHOP_CLIENT_SECRET || !env.NEXT_PUBLIC_WHOP_REDIRECT_URL) {
-      console.error("[OAuth Callback] Missing Whop OAuth configuration");
-      const redirectUrl = new URL("/");
+      console.error("[OAuth Callback] Missing Whop OAuth configuration", {
+        hasClientId: !!env.WHOP_CLIENT_ID,
+        hasClientSecret: !!env.WHOP_CLIENT_SECRET,
+        hasRedirectUrl: !!env.NEXT_PUBLIC_WHOP_REDIRECT_URL,
+        redirectUrl: env.NEXT_PUBLIC_WHOP_REDIRECT_URL,
+      });
+      // Redirect to home page on error, NOT back to callback
+      const redirectUrl = new URL("/", req.url);
       redirectUrl.searchParams.set("error", "oauth_not_configured");
       return NextResponse.redirect(redirectUrl.toString());
     }
