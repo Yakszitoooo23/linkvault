@@ -140,12 +140,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Try to find user by whopUserId first (from token - this should be the Whop user ID like usr_xxx)
-    let user = await prisma.user.findUnique({
+    let user: any = await prisma.user.findUnique({
       where: { whopUserId },
       include: {
         company: true, // Keep for backward compatibility
       },
-    }) as any; // Type assertion needed until migration is applied
+    });
 
     console.log("[create-with-plan] User lookup by whopUserId", {
       searchedFor: whopUserId,
@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
         include: {
           company: true,
         },
-      }) as any; // Type assertion needed until migration is applied
+      });
       console.log("[create-with-plan] User lookup by id", {
         searchedFor: whopUserId,
         found: !!user,
@@ -191,7 +191,7 @@ export async function POST(req: NextRequest) {
         include: {
           company: true,
         },
-      }) as any; // Type assertion needed until migration is applied
+      });
 
       console.log("[create-with-plan] User created on first use", {
         userId: user.id,
@@ -286,13 +286,13 @@ export async function POST(req: NextRequest) {
       const newExpiresAt = new Date(Date.now() + ((tokenData.expires_in ?? 3600) * 1000));
 
       // Update user with new tokens
-      await prisma.user.update({
+      await (prisma.user.update as any)({
         where: { id: user.id },
         data: {
           whopAccessToken: tokenData.access_token,
           whopRefreshToken: tokenData.refresh_token ?? user.whopRefreshToken,
           tokenExpiresAt: newExpiresAt,
-        } as any, // Type assertion needed until migration is applied
+        },
       });
     }
 

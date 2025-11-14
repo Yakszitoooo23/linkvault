@@ -8,7 +8,8 @@
     "start": "next start",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev -n init",
-    "prisma:migrate:add_image_url": "prisma migrate dev -n add_image_url"
+    "prisma:migrate:add_image_url": "prisma migrate dev -n add_image_url",
+    "migrate:apply": "node scripts/apply-migration.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.670.0",
