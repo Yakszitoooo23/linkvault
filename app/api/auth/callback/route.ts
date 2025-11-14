@@ -29,39 +29,45 @@ type WhopProductResponse = {
 };
 
 async function exchangeCodeForTokens(code: string): Promise<WhopTokenResponse> {
-  // Try Basic Auth with form-encoded data (OAuth 2.0 standard)
-  const basicAuth = Buffer.from(
-    `${env.WHOP_CLIENT_ID}:${env.WHOP_CLIENT_SECRET}`
-  ).toString("base64");
-
-  const params = new URLSearchParams({
+  // According to Whop docs: POST https://api.whop.com/v5/oauth/token
+  // Body: JSON with grant_type, code, client_id, client_secret, redirect_uri
+  const endpoint = "https://api.whop.com/v5/oauth/token";
+  
+  const requestBody = {
     grant_type: "authorization_code",
     code,
+    client_id: env.WHOP_CLIENT_ID!,
+    client_secret: env.WHOP_CLIENT_SECRET!,
     redirect_uri: env.NEXT_PUBLIC_WHOP_REDIRECT_URL!,
-  });
+  };
 
-  // Try v2 endpoint first (standard OAuth endpoint)
-  let response = await fetch("https://api.whop.com/api/v2/oauth/token", {
+  // Log request details (mask secret)
+  console.log("[OAuth Callback] Token exchange request", {
+    endpoint,
     method: "POST",
     headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${basicAuth}`,
+      "Content-Type": "application/json",
     },
-    body: params.toString(),
+    body: {
+      ...requestBody,
+      client_secret: requestBody.client_secret
+        ? `${requestBody.client_secret.substring(0, 5)}...${requestBody.client_secret.substring(requestBody.client_secret.length - 5)}`
+        : "MISSING",
+    },
+    clientId: env.WHOP_CLIENT_ID
+      ? `${env.WHOP_CLIENT_ID.substring(0, 5)}...${env.WHOP_CLIENT_ID.substring(env.WHOP_CLIENT_ID.length - 5)}`
+      : "MISSING",
+    clientSecretLength: env.WHOP_CLIENT_SECRET?.length || 0,
+    redirectUri: env.NEXT_PUBLIC_WHOP_REDIRECT_URL,
   });
 
-  // If v2 fails, try v5
-  if (!response.ok && response.status === 404) {
-    console.log("[OAuth Callback] v2 endpoint failed, trying v5...");
-    response = await fetch("https://api.whop.com/api/v5/oauth/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: `Basic ${basicAuth}`,
-      },
-      body: params.toString(),
-    });
-  }
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
 
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => null);
