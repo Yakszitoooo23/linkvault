@@ -188,19 +188,35 @@ export async function POST(req: NextRequest) {
       });
 
       const requestHeaders = headers();
+      
+      // Log all headers to see what Whop sends
+      const allHeaders: Record<string, string> = {};
+      requestHeaders.forEach((value, key) => {
+        allHeaders[key] = key.toLowerCase().includes("auth") ? value.substring(0, 20) + "..." : value;
+      });
+      console.log("[create-with-plan] All request headers", {
+        headerKeys: Object.keys(allHeaders),
+        authHeaders: Object.keys(allHeaders).filter(k => k.toLowerCase().includes("auth")),
+        allHeaders,
+      });
+
       const accessToken = getAccessTokenFromHeaders(requestHeaders);
 
       if (!accessToken) {
         console.error("[create-with-plan] No access token available to create user", {
           whopUserId,
+          availableHeaders: Object.keys(allHeaders),
         });
+        
+        // Since we can't get the OAuth token from headers, the user must go through OAuth first
         return NextResponse.json(
           { 
-            error: "User not found and cannot be created automatically",
-            details: `No user found with ID: ${whopUserId}. Please install the app through Whop's OAuth flow first.`,
-            hint: "Go to the Whop dashboard and install/reinstall this app.",
+            error: "User not found. Please install the app first.",
+            details: `No user found with ID: ${whopUserId}. You need to install this app through Whop's OAuth flow to create products.`,
+            hint: "Go to your Whop dashboard → Apps → Install this app, or reinstall it if already installed.",
+            action: "install_required",
           },
-          { status: 404 }
+          { status: 403 }
         );
       }
 
