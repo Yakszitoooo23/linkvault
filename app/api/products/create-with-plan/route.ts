@@ -5,7 +5,6 @@ import { validateToken } from "@whop-apps/sdk";
 import { prisma } from "@/lib/db";
 import {
   WhopApiError,
-  ensureCompanyAccessToken,
   createCompanyPlan,
 } from "@/lib/whop";
 
