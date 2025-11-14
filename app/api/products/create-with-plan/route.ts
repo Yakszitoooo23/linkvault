@@ -9,6 +9,73 @@ import {
   createCompanyPlan,
 } from "@/lib/whop";
 
+// Helper to extract access token from request headers
+function getAccessTokenFromHeaders(headers: Headers): string | null {
+  const authHeader = headers.get("authorization") || headers.get("Authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.substring(7);
+  }
+  return null;
+}
+
+// Helper to fetch user info from Whop API
+async function fetchWhopUserInfo(accessToken: string): Promise<{ id: string }> {
+  const response = await fetch("https://api.whop.com/api/v2/me", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch Whop user (${response.status})`);
+  }
+
+  return (await response.json()) as { id: string };
+}
+
+// Helper to fetch companies from Whop API
+async function fetchWhopCompanies(accessToken: string): Promise<Array<{ id: string; name: string }>> {
+  const response = await fetch("https://api.whop.com/api/v5/me/companies", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(
+      `Failed to fetch Whop companies (${response.status}): ${JSON.stringify(payload)}`
+    );
+  }
+
+  const companies = (await response.json()) as { data?: Array<{ id: string; name: string }> };
+  return companies.data ?? [];
+}
+
+// Helper to ensure company product exists
+async function ensureCompanyProduct(accessToken: string): Promise<string> {
+  const response = await fetch("https://api.whop.com/api/v5/products", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name: "LinkVault Digital Products",
+      visibility: "hidden",
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(
+      `Failed to create Whop product (${response.status}): ${JSON.stringify(payload)}`
+    );
+  }
+
+  const product = (await response.json()) as { id?: string };
+  if (!product.id) {
+    throw new Error("Whop product creation response missing id");
+  }
+  return product.id;
+}
+
 type CreateProductWithPlanBody = {
   title: string;
   description?: string | null;
@@ -114,20 +181,129 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // If user doesn't exist, try to create them on-the-fly using access token
     if (!user) {
-      console.error("[create-with-plan] User not found after all attempts", {
+      console.log("[create-with-plan] User not found, attempting to create on-the-fly", {
         whopUserId,
-        searchedBy: ["whopUserId", "id"],
-        tokenCompanyId,
       });
-      return NextResponse.json(
-        { 
-          error: "User not found",
-          details: `No user found with ID: ${whopUserId}. Please ensure you have installed the app through Whop's OAuth flow.`,
-          hint: "Try reinstalling the app from the Whop dashboard.",
-        },
-        { status: 404 }
-      );
+
+      const requestHeaders = headers();
+      const accessToken = getAccessTokenFromHeaders(requestHeaders);
+
+      if (!accessToken) {
+        console.error("[create-with-plan] No access token available to create user", {
+          whopUserId,
+        });
+        return NextResponse.json(
+          { 
+            error: "User not found and cannot be created automatically",
+            details: `No user found with ID: ${whopUserId}. Please install the app through Whop's OAuth flow first.`,
+            hint: "Go to the Whop dashboard and install/reinstall this app.",
+          },
+          { status: 404 }
+        );
+      }
+
+      try {
+        console.log("[create-with-plan] Fetching user and company info from Whop API...");
+        const whopUser = await fetchWhopUserInfo(accessToken);
+        const companies = await fetchWhopCompanies(accessToken);
+
+        console.log("[create-with-plan] Fetched from Whop API", {
+          whopUserId: whopUser.id,
+          companiesCount: companies.length,
+          companies: companies.map((c) => ({ id: c.id, name: c.name })),
+        });
+
+        if (companies.length === 0) {
+          console.error("[create-with-plan] No companies found for user", {
+            whopUserId: whopUser.id,
+          });
+          return NextResponse.json(
+            { 
+              error: "No company found",
+              details: "You need to have a company in Whop to use this app. Please create a company first.",
+            },
+            { status: 403 }
+          );
+        }
+
+        // Use the first company
+        const firstCompany = companies[0];
+        console.log("[create-with-plan] Using first company", {
+          companyId: firstCompany.id,
+          companyName: firstCompany.name,
+        });
+
+        // Ensure company product exists
+        const whopProductId = await ensureCompanyProduct(accessToken);
+        console.log("[create-with-plan] Company product ensured", {
+          whopProductId,
+        });
+
+        // Upsert company
+        const company = await prisma.company.upsert({
+          where: { whopCompanyId: firstCompany.id },
+          create: {
+            whopCompanyId: firstCompany.id,
+            name: firstCompany.name,
+            whopAccessToken: accessToken,
+            whopRefreshToken: null, // We don't have refresh token from headers
+            tokenExpiresAt: new Date(Date.now() + 3600 * 1000), // Assume 1 hour expiry
+            whopProductId,
+            isActive: true,
+            installedAt: new Date(),
+          },
+          update: {
+            name: firstCompany.name,
+            whopAccessToken: accessToken,
+            tokenExpiresAt: new Date(Date.now() + 3600 * 1000),
+            whopProductId,
+            isActive: true,
+            updatedAt: new Date(),
+          },
+        });
+
+        console.log("[create-with-plan] Company upserted", {
+          companyId: company.id,
+          whopCompanyId: company.whopCompanyId,
+        });
+
+        // Create user and link to company
+        user = await prisma.user.upsert({
+          where: { whopUserId: whopUser.id },
+          create: {
+            whopUserId: whopUser.id,
+            role: "seller",
+            companyId: company.id,
+          },
+          update: {
+            companyId: company.id,
+          },
+          include: {
+            company: true,
+          },
+        });
+
+        console.log("[create-with-plan] User created/updated", {
+          userId: user.id,
+          whopUserId: user.whopUserId,
+          companyId: user.companyId,
+        });
+      } catch (createError) {
+        console.error("[create-with-plan] Failed to create user on-the-fly", {
+          error: createError instanceof Error ? createError.message : String(createError),
+          stack: createError instanceof Error ? createError.stack : undefined,
+        });
+        return NextResponse.json(
+          { 
+            error: "Failed to create user automatically",
+            details: createError instanceof Error ? createError.message : "Unknown error",
+            hint: "Please try reinstalling the app from the Whop dashboard.",
+          },
+          { status: 500 }
+        );
+      }
     }
 
     // If user doesn't have a company but token has companyId, try to link it
