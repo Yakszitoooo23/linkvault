@@ -194,7 +194,17 @@ export async function POST(req: NextRequest) {
     let user: any = await prisma.user.findUnique({
       where: { whopUserId },
       include: {
-        company: true, // Keep for backward compatibility
+        company: {
+          select: {
+            id: true,
+            whopCompanyId: true,
+            name: true,
+            whopProductId: true,
+            whopAccessToken: true,
+            whopRefreshToken: true,
+            tokenExpiresAt: true,
+          },
+        },
       },
     });
 
@@ -252,55 +262,70 @@ export async function POST(req: NextRequest) {
     }
 
 
-    // SOLUTION 1: Use user's product and tokens (no company required)
-    // If user doesn't have whopProductId, try to create it on-demand
-    if (!user.whopProductId) {
-      console.log("[create-with-plan] User missing whopProductId, attempting to create on-demand", {
+    // Use company's product if available, otherwise user's product
+    // If neither exists, try to create it on-demand
+    const whopProductIdToUse = user.company?.whopProductId || user.whopProductId;
+    
+    if (!whopProductIdToUse) {
+      console.log("[create-with-plan] Missing whopProductId, attempting to create on-demand", {
         userId: user.id,
         whopUserId: user.whopUserId,
-        hasAccessToken: !!user.whopAccessToken,
+        companyId: user.company?.id,
+        hasCompanyProduct: !!user.company?.whopProductId,
+        hasUserProduct: !!user.whopProductId,
+        hasCompanyToken: !!user.company?.whopAccessToken,
+        hasUserToken: !!user.whopAccessToken,
       });
 
-      // Try to get access token from user or request headers
+      // Try to get access token from user, company, or request headers
       const requestHeaders = headers();
       const headerToken = getAccessTokenFromHeaders(requestHeaders);
       
+      // Prioritize OAuth tokens (they have permission to create products)
+      // App API Key doesn't have permission for product creation
+      // Priority: Company OAuth token > User OAuth token > Error
+      const companyToken = user.company?.whopAccessToken;
+      const userToken = user.whopAccessToken;
+      const accessTokenToUse = companyToken || userToken;
+      
       console.log("[create-with-plan] Token availability check", {
         userId: user.id,
-        hasUserToken: !!user.whopAccessToken,
+        hasCompanyToken: !!companyToken,
+        hasUserToken: !!userToken,
         hasHeaderToken: !!headerToken,
         headerTokenType: headerToken ? "x-whop-user-token (session token)" : "none",
+        usingCompanyToken: !!companyToken,
+        usingUserToken: !companyToken && !!userToken,
       });
-
-      // For Whop Apps, we might be able to use the App API Key instead of OAuth tokens
-      // Try App API Key first, then OAuth token, then header token as last resort
-      const appApiKey = process.env.WHOP_API_KEY;
-      const accessTokenToUse = appApiKey || user.whopAccessToken;
       
       console.log("[create-with-plan] Token selection", {
-        hasAppApiKey: !!appApiKey,
-        hasUserOAuthToken: !!user.whopAccessToken,
-        usingAppApiKey: !!appApiKey,
-        usingOAuthToken: !appApiKey && !!user.whopAccessToken,
+        hasCompanyToken: !!companyToken,
+        hasUserOAuthToken: !!userToken,
+        usingCompanyToken: !!companyToken,
+        usingUserOAuthToken: !companyToken && !!userToken,
+        note: "App API Key cannot create products - requires OAuth token",
       });
 
       if (!accessTokenToUse) {
         console.error("[create-with-plan] No OAuth access token available to create Whop product", {
           userId: user.id,
-          hasUserToken: !!user.whopAccessToken,
+          hasCompanyToken: !!companyToken,
+          hasUserToken: !!userToken,
           hasHeaderToken: !!headerToken,
-          note: "x-whop-user-token is a session token and cannot be used for API calls",
+          companyId: user.company?.id,
+          note: "OAuth tokens are required to create products. App API Key doesn't have permission.",
         });
         return NextResponse.json(
           {
             error: "Product setup required",
-            details: "Your account needs to be set up with a Whop product. Please complete the app installation via OAuth.",
-            hint: "The OAuth callback must run to get a valid access token. Check that your redirect URL is configured correctly in Whop dashboard.",
+            details: "Your account needs to be set up with OAuth tokens to create Whop products. Please complete the app installation via OAuth.",
+            hint: "The OAuth callback must run to get a valid access token. Reinstall the app from your Whop dashboard.",
             action: "oauth_required",
             userId: user.id,
             troubleshooting: {
               redirectUrl: "Should be: https://linkvault-five.vercel.app/api/auth/callback",
               checkOAuthLogs: "Look for '[OAuth Callback] ====== CALLBACK CALLED ======' in Vercel logs",
+              solution: "Go to Whop dashboard → Apps → Reinstall LinkVault to trigger OAuth flow",
             },
           },
           { status: 403 }
@@ -311,21 +336,30 @@ export async function POST(req: NextRequest) {
         console.log("[create-with-plan] Creating Whop product on-demand...");
         const whopProductId = await ensureCompanyProduct(accessTokenToUse);
         
-        // Update user with the new product ID and tokens
-        const updateData: any = { whopProductId };
-        if (headerToken && !user.whopAccessToken) {
-          updateData.whopAccessToken = headerToken;
-          updateData.tokenExpiresAt = new Date(Date.now() + 3600 * 1000); // Assume 1 hour
+        // Update company or user with the new product ID
+        if (user.company) {
+          // Update company with product ID
+          await prisma.company.update({
+            where: { id: user.company.id },
+            data: { whopProductId },
+          });
+          // Also update user for backward compatibility
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { whopProductId },
+          });
+          // Update user object
+          (user as any).company.whopProductId = whopProductId;
+        } else {
+          // Update user with product ID
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { whopProductId },
+          });
         }
-
-        await prisma.user.update({
-          where: { id: user.id },
-          data: updateData,
-        });
 
         // Update user object for rest of function
         (user as any).whopProductId = whopProductId;
-        (user as any).whopAccessToken = accessTokenToUse;
 
         console.log("[create-with-plan] Whop product created on-demand", {
           userId: user.id,
@@ -348,28 +382,39 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Ensure user's access token is valid (refresh if needed)
-    if (!user.whopAccessToken) {
-      console.error("[create-with-plan] User missing OAuth access token", {
+    // Use company's OAuth token if available, otherwise user's token
+    // Company tokens are preferred as they're scoped to the company
+    const companyToken = user.company?.whopAccessToken;
+    const userToken = user.whopAccessToken;
+    const accessToken = companyToken || userToken;
+
+    if (!accessToken) {
+      console.error("[create-with-plan] Missing OAuth access token", {
         userId: user.id,
         whopUserId: user.whopUserId,
+        companyId: user.company?.id,
+        hasCompanyToken: !!companyToken,
+        hasUserToken: !!userToken,
       });
       return NextResponse.json(
         {
           error: "Authentication required",
-          details: "Your account needs to be authenticated. Please reinstall the app to refresh your tokens.",
+          details: "Your account needs to be authenticated with OAuth tokens. Please reinstall the app to refresh your tokens.",
           hint: "Go to your Whop dashboard → Apps → Reinstall this app.",
           action: "oauth_required",
         },
         { status: 401 }
       );
     }
-
-    let accessToken = user.whopAccessToken;
     
-    if (user.tokenExpiresAt && user.tokenExpiresAt.getTime() <= Date.now()) {
+    // Check if token is expired (check company token first, then user token)
+    const companyTokenExpired = user.company?.tokenExpiresAt && user.company.tokenExpiresAt.getTime() <= Date.now();
+    const userTokenExpired = user.tokenExpiresAt && user.tokenExpiresAt.getTime() <= Date.now();
+    
+    if (companyTokenExpired || userTokenExpired) {
       // Token expired, try to refresh
-      if (!user.whopRefreshToken) {
+      const refreshToken = user.company?.whopRefreshToken || user.whopRefreshToken;
+      if (!refreshToken) {
         return NextResponse.json(
           {
             error: "Token expired",
@@ -387,7 +432,7 @@ export async function POST(req: NextRequest) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           grant_type: "refresh_token",
-          refresh_token: user.whopRefreshToken,
+          refresh_token: refreshToken,
           client_id: process.env.WHOP_CLIENT_ID,
           client_secret: process.env.WHOP_CLIENT_SECRET,
         }),
@@ -411,18 +456,41 @@ export async function POST(req: NextRequest) {
         expires_in?: number;
       };
 
-      accessToken = tokenData.access_token;
+      const newAccessToken = tokenData.access_token;
       const newExpiresAt = new Date(Date.now() + ((tokenData.expires_in ?? 3600) * 1000));
 
-      // Update user with new tokens
-      await (prisma.user.update as any)({
-        where: { id: user.id },
-        data: {
-          whopAccessToken: tokenData.access_token,
-          whopRefreshToken: tokenData.refresh_token ?? user.whopRefreshToken,
-          tokenExpiresAt: newExpiresAt,
-        },
-      });
+      // Update company or user with new tokens
+      if (user.company) {
+        await prisma.company.update({
+          where: { id: user.company.id },
+          data: {
+            whopAccessToken: newAccessToken,
+            whopRefreshToken: tokenData.refresh_token ?? user.company.whopRefreshToken,
+            tokenExpiresAt: newExpiresAt,
+          },
+        });
+        // Also update user for backward compatibility
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            whopAccessToken: newAccessToken,
+            whopRefreshToken: tokenData.refresh_token ?? user.whopRefreshToken,
+            tokenExpiresAt: newExpiresAt,
+          },
+        });
+      } else {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            whopAccessToken: newAccessToken,
+            whopRefreshToken: tokenData.refresh_token ?? user.whopRefreshToken,
+            tokenExpiresAt: newExpiresAt,
+          },
+        });
+      }
+
+      // Update accessToken variable for rest of function
+      accessToken = newAccessToken;
     }
 
     // Create product linked to user
@@ -443,13 +511,14 @@ export async function POST(req: NextRequest) {
     try {
       const planId = await createCompanyPlan({
         accessToken,
-        whopProductId: user.whopProductId,
+        whopProductId: whopProductIdToUse || user.whopProductId || user.company?.whopProductId,
         priceCents: product.priceCents,
         currency: product.currency.toLowerCase(),
         metadata: {
           linkVaultProductId: product.id,
           userId: user.id,
           whopUserId: user.whopUserId,
+          companyId: user.company?.id,
         },
       });
 
