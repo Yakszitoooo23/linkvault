@@ -6,9 +6,26 @@ import { env } from "@/lib/env";
  * This endpoint can be called to start the OAuth authorization process
  */
 export async function GET(req: NextRequest) {
-  if (!env.WHOP_CLIENT_ID || !env.NEXT_PUBLIC_WHOP_REDIRECT_URL) {
+  const missingVars: string[] = [];
+  if (!env.WHOP_CLIENT_ID) missingVars.push("WHOP_CLIENT_ID");
+  if (!env.NEXT_PUBLIC_WHOP_REDIRECT_URL) missingVars.push("NEXT_PUBLIC_WHOP_REDIRECT_URL");
+  
+  if (missingVars.length > 0) {
     return NextResponse.json(
-      { error: "OAuth not configured" },
+      { 
+        error: "OAuth not configured",
+        message: "Missing required environment variables",
+        missing: missingVars,
+        instructions: {
+          step1: "Go to Vercel Dashboard → Your Project → Settings → Environment Variables",
+          step2: "Add these variables:",
+          variables: {
+            WHOP_CLIENT_ID: "Get from Whop Apps Dashboard → Your App → OAuth Settings",
+            NEXT_PUBLIC_WHOP_REDIRECT_URL: "https://linkvault-five.vercel.app/api/auth/callback",
+          },
+          step3: "Redeploy your app after adding variables",
+        }
+      },
       { status: 500 }
     );
   }
