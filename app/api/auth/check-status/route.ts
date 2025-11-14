@@ -35,7 +35,6 @@ export async function GET(req: NextRequest) {
         tokenExpiresAt: true,
         companyId: true,
         createdAt: true,
-        updatedAt: true,
       },
     });
 
@@ -66,7 +65,6 @@ export async function GET(req: NextRequest) {
         tokenExpired,
         tokenExpiresAt: user.tokenExpiresAt?.toISOString(),
         createdAt: user.createdAt.toISOString(),
-        updatedAt: user.updatedAt.toISOString(),
       },
       issues: [
         !hasTokens && "Missing OAuth tokens - run OAuth flow",
