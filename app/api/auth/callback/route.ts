@@ -111,31 +111,59 @@ export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams;
     const code = searchParams.get("code");
     const error = searchParams.get("error");
+    const state = searchParams.get("state"); // May contain company context
+
+    console.log("[OAuth Callback] Starting OAuth callback", {
+      hasCode: !!code,
+      hasError: !!error,
+      hasState: !!state,
+      allParams: Object.fromEntries(searchParams.entries()),
+    });
 
     if (error) {
-      console.error("OAuth error:", error);
+      console.error("[OAuth Callback] OAuth error:", error);
       const redirectUrl = new URL(env.NEXT_PUBLIC_WHOP_REDIRECT_URL || "/");
       redirectUrl.searchParams.set("error", error);
       return NextResponse.redirect(redirectUrl.toString());
     }
 
     if (!code) {
+      console.error("[OAuth Callback] Missing authorization code");
       return NextResponse.json({ error: "Missing authorization code" }, { status: 400 });
     }
 
     if (!env.WHOP_CLIENT_ID || !env.WHOP_CLIENT_SECRET || !env.NEXT_PUBLIC_WHOP_REDIRECT_URL) {
-      console.error("Missing Whop OAuth configuration");
+      console.error("[OAuth Callback] Missing Whop OAuth configuration");
       const redirectUrl = new URL("/");
       redirectUrl.searchParams.set("error", "oauth_not_configured");
       return NextResponse.redirect(redirectUrl.toString());
     }
 
+    console.log("[OAuth Callback] Exchanging code for tokens...");
     const { access_token, refresh_token, expires_in } = await exchangeCodeForTokens(code);
+    console.log("[OAuth Callback] Token exchange successful", {
+      hasAccessToken: !!access_token,
+      hasRefreshToken: !!refresh_token,
+      expiresIn: expires_in,
+    });
+
+    console.log("[OAuth Callback] Fetching Whop user...");
     const whopUser = await fetchWhopUser(access_token);
+    console.log("[OAuth Callback] Whop user fetched", { whopUserId: whopUser.id });
+
+    console.log("[OAuth Callback] Fetching Whop companies...");
     const companies = await fetchWhopCompanies(access_token);
+    console.log("[OAuth Callback] Companies fetched", {
+      count: companies.length,
+      companies: companies.map((c) => ({ id: c.id, name: c.name })),
+    });
 
     if (companies.length === 0) {
-      console.warn("No Whop companies found for user", whopUser.id);
+      console.error("[OAuth Callback] CRITICAL: No Whop companies found for user", {
+        whopUserId: whopUser.id,
+        accessToken: access_token.substring(0, 20) + "...",
+      });
+      // Still proceed but log the issue - user might need to create a company first
     }
 
     const tokenExpiresAt = new Date(Date.now() + (expires_in ?? 3600) * 1000);
@@ -144,7 +172,16 @@ export async function GET(req: NextRequest) {
 
     for (const company of companies) {
       try {
+        console.log("[OAuth Callback] Processing company installation", {
+          companyId: company.id,
+          companyName: company.name,
+        });
+
         const whopProductId = await ensureCompanyProduct(access_token);
+        console.log("[OAuth Callback] Company product ensured", {
+          companyId: company.id,
+          whopProductId,
+        });
 
         const upsertedCompany = await prisma.company.upsert({
           where: { whopCompanyId: company.id },
@@ -169,16 +206,29 @@ export async function GET(req: NextRequest) {
           },
         });
 
+        console.log("[OAuth Callback] Company upserted successfully", {
+          companyId: company.id,
+          internalId: upsertedCompany.id,
+        });
+
         installedCompanyIds.push(upsertedCompany.id);
       } catch (companyError) {
-        console.error("Failed to process company installation", {
+        console.error("[OAuth Callback] Failed to process company installation", {
           companyId: company.id,
-          error: companyError,
+          companyName: company.name,
+          error: companyError instanceof Error ? companyError.message : String(companyError),
+          stack: companyError instanceof Error ? companyError.stack : undefined,
         });
       }
     }
 
     const firstCompanyId = installedCompanyIds[0] ?? null;
+
+    console.log("[OAuth Callback] Linking user to company", {
+      whopUserId: whopUser.id,
+      firstCompanyId,
+      installedCompanyIds,
+    });
 
     const user = await prisma.user.upsert({
       where: { whopUserId: whopUser.id },
@@ -192,6 +242,21 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    console.log("[OAuth Callback] User upserted", {
+      userId: user.id,
+      whopUserId: user.whopUserId,
+      companyId: user.companyId,
+    });
+
+    if (!user.companyId) {
+      console.error("[OAuth Callback] WARNING: User created without companyId", {
+        userId: user.id,
+        whopUserId: user.whopUserId,
+        companiesFound: companies.length,
+        installedCompanyIds,
+      });
+    }
+
     const redirectUrl = new URL(env.NEXT_PUBLIC_WHOP_REDIRECT_URL || "/experience");
     redirectUrl.searchParams.set("success", "true");
     redirectUrl.searchParams.set("userId", user.id);
@@ -202,7 +267,10 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("OAuth callback error:", err);
+    console.error("[OAuth Callback] OAuth callback error:", {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
     const redirectUrl = new URL(env.NEXT_PUBLIC_WHOP_REDIRECT_URL || "/");
     redirectUrl.searchParams.set("error", "internal_error");
     return NextResponse.redirect(redirectUrl.toString());

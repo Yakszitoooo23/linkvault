@@ -30,22 +30,91 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { userId: whopUserId } = await validateToken({ headers: headers() });
+    const tokenData = await validateToken({ headers: headers() });
+    const { userId: whopUserId, companyId: tokenCompanyId } = tokenData as {
+      userId: string;
+      companyId?: string;
+    };
+
+    console.log("[create-with-plan] Token validation result", {
+      userId: whopUserId,
+      tokenCompanyId,
+      tokenDataKeys: Object.keys(tokenData || {}),
+    });
 
     if (!whopUserId) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
-    const user = await prisma.user.findUnique({
+    // Try to find user by whopUserId first (from token)
+    let user = await prisma.user.findUnique({
       where: { whopUserId },
       include: {
         company: true,
       },
     });
 
-    if (!user || !user.company) {
+    // If not found, try by internal id (validateToken might return internal id)
+    if (!user) {
+      console.log("[create-with-plan] User not found by whopUserId, trying by id", {
+        whopUserId,
+      });
+      user = await prisma.user.findUnique({
+        where: { id: whopUserId },
+        include: {
+          company: true,
+        },
+      });
+    }
+
+    if (!user) {
+      console.error("[create-with-plan] User not found", {
+        whopUserId,
+        searchedBy: ["whopUserId", "id"],
+      });
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    // If user doesn't have a company but token has companyId, try to link it
+    if (!user.company && tokenCompanyId) {
+      console.log("[create-with-plan] User missing company, attempting to link from token", {
+        userId: user.id,
+        tokenCompanyId,
+      });
+
+      const company = await prisma.company.findUnique({
+        where: { whopCompanyId: tokenCompanyId },
+      });
+
+      if (company) {
+        console.log("[create-with-plan] Found company from token, linking user", {
+          userId: user.id,
+          companyId: company.id,
+        });
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { companyId: company.id },
+          include: { company: true },
+        });
+      } else {
+        console.warn("[create-with-plan] Company from token not found in database", {
+          tokenCompanyId,
+        });
+      }
+    }
+
+    if (!user.company) {
+      console.error("[create-with-plan] User is not linked to a Whop company", {
+        userId: user.id,
+        whopUserId: user.whopUserId,
+        companyId: user.companyId,
+        tokenCompanyId,
+      });
       return NextResponse.json(
-        { error: "User is not linked to a Whop company" },
+        {
+          error: "User is not linked to a Whop company. Please reinstall the app or contact support.",
+          details: "The app needs to be installed for a company to create products.",
+        },
         { status: 403 }
       );
     }
