@@ -29,22 +29,21 @@ type WhopProductResponse = {
 };
 
 async function exchangeCodeForTokens(code: string): Promise<WhopTokenResponse> {
-  // Try Basic Auth first (some OAuth implementations require this)
-  const basicAuth = Buffer.from(
-    `${env.WHOP_CLIENT_ID}:${env.WHOP_CLIENT_SECRET}`
-  ).toString("base64");
+  // Try form-encoded data (standard OAuth 2.0 format)
+  const params = new URLSearchParams({
+    grant_type: "authorization_code",
+    client_id: env.WHOP_CLIENT_ID!,
+    client_secret: env.WHOP_CLIENT_SECRET!,
+    code,
+    redirect_uri: env.NEXT_PUBLIC_WHOP_REDIRECT_URL!,
+  });
 
   const response = await fetch("https://api.whop.com/api/v2/oauth/token", {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${basicAuth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: JSON.stringify({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: env.NEXT_PUBLIC_WHOP_REDIRECT_URL,
-    }),
+    body: params.toString(),
   });
 
   if (!response.ok) {
