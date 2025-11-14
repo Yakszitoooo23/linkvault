@@ -30,8 +30,9 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const redirectUri = encodeURIComponent(env.NEXT_PUBLIC_WHOP_REDIRECT_URL);
-  const clientId = env.WHOP_CLIENT_ID;
+  // TypeScript: we've already checked these exist above
+  const redirectUri = encodeURIComponent(env.NEXT_PUBLIC_WHOP_REDIRECT_URL!);
+  const clientId = env.WHOP_CLIENT_ID!;
   
   // Build OAuth authorization URL
   const authUrl = `https://whop.com/oauth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=read write`;
