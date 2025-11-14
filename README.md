@@ -1,11 +1,39 @@
-# Whop DigiSell Starter (Next.js + Prisma + S3 + Webhooks)
+# LinkVault - Whop Digital Products App
 
-This is a ready-to-deploy starter for a DigiSell-style app embedded in **Whop**:
+A Whop Experience App that lets creators create and sell digital products.
+
+**Tech Stack:**
 - App Router (Next.js 14)
 - Prisma (PostgreSQL)
 - S3/R2 presigned uploads & downloads
 - Whop Webhook verification (payment.succeeded / refunded)
-- Minimal Discover + Experience pages
+- Iframe authentication (no OAuth required for installation)
+
+## 🔐 Authentication
+
+This app uses **iframe authentication** (not OAuth) for installation:
+- App runs inside Whop iframe
+- Whop automatically sends `x-whop-user-token` header
+- No OAuth flow required for basic functionality
+- Uses App API Key for server-side Whop API calls
+
+See [DEV_NOTES.md](./DEV_NOTES.md) for detailed authentication flow.
+
+## ⚙️ Required App Permissions
+
+Your app **must** have these permissions in Whop dashboard:
+- `products:create` - To create Whop products
+- `plans:create` - To create Whop plans
+
+**How to add:**
+1. Go to [Whop Developer Dashboard](https://whop.com/dashboard/developer/)
+2. Select your app
+3. Go to **"Permissions"** tab
+4. Click **"Add permissions"**
+5. Select `products:create` and `plans:create`
+6. Save and **reinstall** the app
+
+**Runtime check:** The app will return helpful errors if permissions are missing.
 
 ## 1) Local Setup
 
@@ -23,13 +51,17 @@ Create `.env.local` with:
 # Database (Postgres; e.g., Neon or Vercel Postgres)
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DB?sslmode=require
 
-# Whop OAuth & API
-WHOP_CLIENT_ID=your_whop_client_id
-WHOP_CLIENT_SECRET=your_whop_client_secret
-WHOP_APP_ID=your_whop_app_id
+# Whop App Configuration (REQUIRED)
+WHOP_APP_ID=your_whop_app_id                    # Required: App ID from Whop dashboard
+WHOP_API_KEY=your_whop_api_key_here             # Required: App API Key for server-side API calls
+
+# Whop OAuth (OPTIONAL - for future "Connect Whop" features)
+WHOP_CLIENT_ID=your_whop_client_id              # Optional: Only if using OAuth
+WHOP_CLIENT_SECRET=your_whop_client_secret      # Optional: Only if using OAuth
 NEXT_PUBLIC_WHOP_REDIRECT_URL=https://your-vercel-domain.vercel.app/api/auth/callback
-WHOP_API_KEY=your_whop_api_key_here
-WHOP_WEBHOOK_SECRET=your_webhook_secret_here
+
+# Whop Webhooks
+WHOP_WEBHOOK_SECRET=your_webhook_secret_here    # Required: For webhook verification
 
 # Storage (Cloudflare R2 - S3 API)
 R2_ACCOUNT_ID=your-account-id              # or set FILE_ENDPOINT instead

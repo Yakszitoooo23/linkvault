@@ -1,7 +1,5 @@
-import { headers } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
-import { validateToken } from "@whop-apps/sdk";
-
+import { verifyWhopUser } from "@/lib/whopAuth";
 import { prisma } from "@/lib/db";
 
 type CreateProductBody = {
@@ -14,73 +12,50 @@ type CreateProductBody = {
   imageUrl?: string | null;
 };
 
+/**
+ * Create a product (without Whop plan)
+ * Uses iframe auth (x-whop-user-token)
+ */
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as Partial<CreateProductBody>;
-    console.log("Product creation request body:", JSON.stringify(body, null, 2));
-
-    // Get authenticated user (required for userId)
-    const tokenData = await validateToken({ headers: headers() });
-    const { userId: whopUserId } = (tokenData || {}) as {
-      userId?: string;
-      [key: string]: unknown;
-    };
-
-    if (!whopUserId) {
+    // Verify user from iframe token
+    const whopUser = await verifyWhopUser();
+    if (!whopUser) {
       return NextResponse.json(
-        { error: "Authentication required" },
+        {
+          error: "Authentication required",
+          details: "Invalid or missing Whop user token. Please ensure you're accessing this app from within Whop.",
+        },
         { status: 401 }
       );
     }
 
-    // Find user to get their internal ID
-    const user = await prisma.user.findUnique({
-      where: { whopUserId },
-      select: { id: true, companyId: true },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found. Please install the app first." },
-        { status: 404 }
-      );
-    }
-
-    // Get companyId from body (for backward compatibility) or from user
-    const companyIdFromBody = (body as any).companyId as string | undefined;
-    const companyId = companyIdFromBody || user.companyId || null;
+    const body = (await req.json()) as Partial<CreateProductBody>;
 
     if (!body.title || typeof body.priceCents !== "number" || !body.fileKey) {
-      console.error("Missing required fields", {
-        title: body.title,
-        priceCents: body.priceCents,
-        fileKey: body.fileKey,
-      });
       return NextResponse.json(
         { error: "Missing required fields: title, priceCents, fileKey" },
         { status: 400 }
       );
     }
 
-    if (body.imageUrl && typeof body.imageUrl === "string") {
-      const isValidUrl =
-        body.imageUrl.startsWith("http://") ||
-        body.imageUrl.startsWith("https://") ||
-        body.imageUrl.startsWith("/");
-      if (!isValidUrl) {
-        return NextResponse.json(
-          { error: "Invalid imageUrl format. Must be absolute URL or start with /" },
-          { status: 400 }
-        );
-      }
-    }
-
-    console.info("Creating product via legacy endpoint", {
-      userId: user.id,
-      companyId,
-      title: body.title,
+    // Get or create user
+    let user = await prisma.user.findUnique({
+      where: { whopUserId: whopUser.userId },
+      select: { id: true, companyId: true },
     });
 
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          whopUserId: whopUser.userId,
+          role: "seller",
+        },
+        select: { id: true, companyId: true },
+      });
+    }
+
+    // Create product
     const product = await prisma.product.create({
       data: {
         title: body.title,
@@ -90,8 +65,8 @@ export async function POST(req: NextRequest) {
         fileKey: body.fileKey,
         imageKey: body.imageKey ?? null,
         imageUrl: body.imageUrl ?? null,
-        userId: user.id, // Required: link to user
-        companyId, // Optional: for backward compatibility
+        userId: user.id,
+        companyId: user.companyId,
       },
     });
 
