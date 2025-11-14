@@ -58,6 +58,12 @@ async function fetchWhopCompanies(accessToken: string): Promise<Array<{ id: stri
 
 // Helper to ensure company product exists
 async function ensureCompanyProduct(accessToken: string): Promise<string> {
+  console.log("[ensureCompanyProduct] Attempting to create Whop product", {
+    tokenLength: accessToken.length,
+    tokenPrefix: accessToken.substring(0, 20) + "...",
+    endpoint: "https://api.whop.com/api/v5/products",
+  });
+
   const response = await fetch("https://api.whop.com/api/v5/products", {
     method: "POST",
     headers: {
@@ -70,16 +76,33 @@ async function ensureCompanyProduct(accessToken: string): Promise<string> {
     }),
   });
 
+  const responseText = await response.text();
+  let payload: unknown = null;
+  try {
+    payload = JSON.parse(responseText);
+  } catch {
+    payload = responseText;
+  }
+
+  console.log("[ensureCompanyProduct] Whop API response", {
+    status: response.status,
+    statusText: response.statusText,
+    payload,
+    headers: Object.fromEntries(response.headers.entries()),
+  });
+
   if (!response.ok) {
-    const payload = await response.json().catch(() => null);
     throw new Error(
       `Failed to create Whop product (${response.status}): ${JSON.stringify(payload)}`
     );
   }
 
-  const product = (await response.json()) as { id?: string };
-  if (!product.id) {
-    throw new Error("Whop product creation response missing id");
+  const product = typeof payload === "object" && payload !== null && "id" in payload
+    ? (payload as { id?: string })
+    : null;
+
+  if (!product?.id) {
+    throw new Error(`Whop product creation response missing id: ${JSON.stringify(payload)}`);
   }
   return product.id;
 }
@@ -212,21 +235,37 @@ export async function POST(req: NextRequest) {
       // Try to get access token from user or request headers
       const requestHeaders = headers();
       const headerToken = getAccessTokenFromHeaders(requestHeaders);
-      const accessTokenToUse = user.whopAccessToken || headerToken;
+      
+      console.log("[create-with-plan] Token availability check", {
+        userId: user.id,
+        hasUserToken: !!user.whopAccessToken,
+        hasHeaderToken: !!headerToken,
+        headerTokenType: headerToken ? "x-whop-user-token (session token)" : "none",
+      });
+
+      // IMPORTANT: x-whop-user-token is a SESSION token, not an OAuth access token
+      // Session tokens cannot be used to create products via the API
+      // We need a real OAuth access token from the OAuth callback
+      const accessTokenToUse = user.whopAccessToken;
 
       if (!accessTokenToUse) {
-        console.error("[create-with-plan] No access token available to create Whop product", {
+        console.error("[create-with-plan] No OAuth access token available to create Whop product", {
           userId: user.id,
           hasUserToken: !!user.whopAccessToken,
           hasHeaderToken: !!headerToken,
+          note: "x-whop-user-token is a session token and cannot be used for API calls",
         });
         return NextResponse.json(
           {
             error: "Product setup required",
-            details: "Your account needs to be set up with a Whop product. Please complete the app installation.",
-            hint: "Go to your Whop dashboard → Apps → Install this app. This will set up your account and enable product creation.",
+            details: "Your account needs to be set up with a Whop product. Please complete the app installation via OAuth.",
+            hint: "The OAuth callback must run to get a valid access token. Check that your redirect URL is configured correctly in Whop dashboard.",
             action: "oauth_required",
             userId: user.id,
+            troubleshooting: {
+              redirectUrl: "Should be: https://linkvault-five.vercel.app/api/auth/callback",
+              checkOAuthLogs: "Look for '[OAuth Callback] ====== CALLBACK CALLED ======' in Vercel logs",
+            },
           },
           { status: 403 }
         );
