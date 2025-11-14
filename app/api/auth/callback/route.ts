@@ -201,14 +201,15 @@ export async function GET(req: NextRequest) {
       userId: user.id,
       whopUserId: user.whopUserId,
       companyId: user.companyId,
+      whopProductId: user.whopProductId,
+      hasAccessToken: !!user.whopAccessToken,
     });
 
-    if (!user.companyId) {
-      console.error("[OAuth Callback] WARNING: User created without companyId", {
+    // Note: companyId is now optional (Solution 1 - no company requirement)
+    if (!user.whopProductId) {
+      console.warn("[OAuth Callback] User created without whopProductId", {
         userId: user.id,
         whopUserId: user.whopUserId,
-        companiesFound: companies.length,
-        installedCompanyIds,
       });
     }
 
