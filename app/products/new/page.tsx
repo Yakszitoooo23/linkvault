@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useRef, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
@@ -31,6 +31,9 @@ interface ToastState {
 
 export default function CreateProductPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const companyId = searchParams.get("companyId");
+  
   const [formData, setFormData] = useState<FormData>({
     name: '',
     price: '',
@@ -45,6 +48,21 @@ export default function CreateProductPage() {
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const digitalInputRef = useRef<HTMLInputElement>(null);
+
+  // Check for companyId on mount
+  useEffect(() => {
+    if (!companyId) {
+      setToast({
+        show: true,
+        message: 'Missing companyId in URL. Please access this page from the dashboard.',
+        type: 'error',
+      });
+      // Redirect back after showing error
+      setTimeout(() => {
+        router.push('/');
+      }, 3000);
+    }
+  }, [companyId, router]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -196,6 +214,11 @@ export default function CreateProductPage() {
         }
       }
 
+      // Validate companyId before proceeding
+      if (!companyId) {
+        throw new Error('Missing companyId in URL. Please access this page from the dashboard.');
+      }
+
       // Create product
       const productResponse = await fetch("/api/products/create-with-plan", {
         method: 'POST',
@@ -208,6 +231,7 @@ export default function CreateProductPage() {
           fileKey,
           imageKey,
           imageUrl: finalImageUrl,
+          companyId, // Include companyId from URL
         }),
       });
 

@@ -11,6 +11,7 @@ type CreateProductWithPlanBody = {
   fileKey: string;
   imageKey?: string | null;
   imageUrl?: string | null;
+  companyId: string; // Required: must come from URL/request
 };
 
 /**
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Verify user from iframe token
+    // Verify user from iframe token (for userId only)
     const whopUser = await verifyWhopUser();
     if (!whopUser) {
       return NextResponse.json(
@@ -44,58 +45,38 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // CRITICAL: Ensure companyId is present before proceeding
-    // Whop API requires company_id for product creation
-    if (!whopUser.companyId) {
-      console.error("[create-with-plan] ❌ ERROR: companyId is undefined. Cannot create Whop product without company_id.");
-      console.error("[create-with-plan] Token analysis", {
-        userId: whopUser.userId,
-        tokenKeys: Object.keys(whopUser),
-        hasFallback: !!process.env.WHOP_FALLBACK_COMPANY_ID,
-        fallbackValue: process.env.WHOP_FALLBACK_COMPANY_ID ? "SET" : "NOT SET",
-      });
-      return NextResponse.json(
-        {
-          error: "Company ID required",
-          details: "Whop product creation requires a company_id, but it's missing from the authentication token.",
-          troubleshooting: {
-            issue: "companyId is undefined",
-            tokenContains: ["appId", "userId"], // Based on your logs
-            possibleCauses: [
-              "User token doesn't include company information (only has appId and userId)",
-              "User is not associated with a company in Whop",
-              "WHOP_FALLBACK_COMPANY_ID not configured in Vercel",
-            ],
-            solutions: [
-              "Set WHOP_FALLBACK_COMPANY_ID in Vercel environment variables with your company ID (format: biz_xxxxx)",
-              "To find your company ID: Check Whop dashboard URL or use Whop API",
-              "After setting WHOP_FALLBACK_COMPANY_ID, redeploy and try again",
-            ],
-            immediateAction: "Go to Vercel → Settings → Environment Variables → Add WHOP_FALLBACK_COMPANY_ID = biz_xxxxx",
-          },
-        },
-        { status: 500 }
-      );
-    }
-    
-    console.log("[create-with-plan] Authenticated user", {
-      userId: whopUser.userId,
-      companyId: whopUser.companyId,
-      hasCompanyId: !!whopUser.companyId,
-    });
-    
-    // Log final companyId that will be used
-    console.log("[create-with-plan] Final companyId used for Whop product creation:", whopUser.companyId);
-
     // Parse request body
     const body = (await req.json()) as Partial<CreateProductWithPlanBody>;
 
+    // Validate required fields
     if (!body.title || typeof body.priceCents !== "number" || !body.fileKey) {
       return NextResponse.json(
         { error: "Missing required fields: title, priceCents, fileKey" },
         { status: 400 }
       );
     }
+
+    // CRITICAL: companyId must come from request body (URL-derived)
+    if (!body.companyId || typeof body.companyId !== "string") {
+      console.error("[create-with-plan] ❌ ERROR: companyId is missing from request body");
+      return NextResponse.json(
+        {
+          error: "Company ID required",
+          details: "companyId must be provided in the request body. It should come from the URL (e.g., /dashboard/[companyId]).",
+        },
+        { status: 400 }
+      );
+    }
+
+    const companyId = body.companyId;
+    
+    console.log("[create-with-plan] Authenticated user", {
+      userId: whopUser.userId,
+      companyIdFromRequest: companyId,
+    });
+    
+    // Log final companyId that will be used for Whop API
+    console.log("[create-with-plan] Final companyId used for Whop product creation:", companyId);
 
     // Get or create user in our database
     let user = await prisma.user.findUnique({
@@ -106,25 +87,25 @@ export async function POST(req: NextRequest) {
     if (!user) {
       console.log("[create-with-plan] Creating user on first use", {
         whopUserId: whopUser.userId,
-        companyId: whopUser.companyId,
+        companyId: companyId,
       });
 
       user = await prisma.user.create({
         data: {
           whopUserId: whopUser.userId,
           role: "seller",
-          companyId: whopUser.companyId ? await getOrCreateCompany(whopUser.companyId) : null,
+          companyId: await getOrCreateCompany(companyId),
         },
         include: { company: true },
       });
     }
 
-    // If user has companyId from token but not in DB, link them
-    if (whopUser.companyId && !user.companyId) {
-      const companyId = await getOrCreateCompany(whopUser.companyId);
+    // If user doesn't have companyId in DB, link them to the company from request
+    if (!user.companyId) {
+      const dbCompanyId = await getOrCreateCompany(companyId);
       user = await prisma.user.update({
         where: { id: user.id },
-        data: { companyId },
+        data: { companyId: dbCompanyId },
         include: { company: true },
       });
     }
@@ -161,19 +142,16 @@ export async function POST(req: NextRequest) {
         isDefined: true,
         length: appApiKey.length,
         masked: maskedApiKey,
-        companyId: whopUser.companyId,
-        hasCompanyId: !!whopUser.companyId,
+        companyId: companyId,
+        hasCompanyId: !!companyId,
       });
 
-      // Warn if companyId is missing - this might cause 401
-      if (!whopUser.companyId) {
-        console.warn("[create-with-plan] ⚠️ CRITICAL: companyId is undefined. Whop API may require company_id for product creation.");
-      }
+      // companyId is guaranteed to be present from request body validation above
 
       try {
         whopProductId = await createWhopProduct({
           apiKey: appApiKey,
-          companyId: whopUser.companyId,
+          companyId: companyId, // Use companyId from request body
           name: "LinkVault Digital Products",
         });
 
@@ -199,9 +177,9 @@ export async function POST(req: NextRequest) {
         console.error("[create-with-plan] Failed to create Whop product", {
           error: errorMessage,
           httpStatus: is401 ? 401 : "unknown",
-          companyId: whopUser.companyId,
-          hasCompanyId: !!whopUser.companyId,
-          companyIdType: typeof whopUser.companyId,
+          companyId: companyId,
+          hasCompanyId: !!companyId,
+          companyIdType: typeof companyId,
           apiKeyDefined: !!appApiKey,
           apiKeyLength: appApiKey?.length || 0,
         });
@@ -212,13 +190,13 @@ export async function POST(req: NextRequest) {
             {
               error: "Missing app permissions or invalid request",
               details: "The app API key doesn't have permission to create products, or the request is missing required fields (e.g., company_id).",
-              hint: "1. Add 'products:create' permission in Whop dashboard. 2. Ensure companyId is available in the iframe token.",
+              hint: "1. Add 'products:create' permission in Whop dashboard. 2. Ensure companyId is provided in the request body.",
               troubleshooting: {
-                companyId: whopUser.companyId || "MISSING - This may be the issue",
+                companyId: companyId || "MISSING - This should not happen if validation passed",
                 hasApiKey: !!appApiKey,
-                suggestion: whopUser.companyId 
+                suggestion: companyId 
                   ? "Check app permissions in Whop dashboard"
-                  : "companyId is missing from token - check if user has a company",
+                  : "companyId validation should have caught this - check request body",
               },
             },
             { status: 403 }

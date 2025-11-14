@@ -4,9 +4,9 @@ import { env } from "./env";
 
 export type WhopUser = {
   userId: string;
-  companyId?: string;
   email?: string;
   appId?: string;
+  experienceId?: string;
   [key: string]: unknown;
 };
 
@@ -46,22 +46,19 @@ export async function verifyWhopUser(): Promise<WhopUser | null> {
     console.log("[whopAuth] Raw claims from x-whop-user-token", {
       allKeys: Object.keys(tokenData),
       claims: safeTokenData,
-      // Explicitly log common ID fields
+      // Explicitly log common ID fields (companyId is NOT extracted - must come from URL)
       userId: (tokenData as any).userId,
-      companyId: (tokenData as any).companyId,
-      company_id: (tokenData as any).company_id,
       experienceId: (tokenData as any).experienceId,
       experience_id: (tokenData as any).experience_id,
       appId: (tokenData as any).appId,
       app_id: (tokenData as any).app_id,
+      note: "companyId must come from URL/request, not from token",
     });
 
     // Extract user info from token
-    // NOTE: companyId might be in different fields - check common variations
+    // NOTE: companyId is NOT extracted from token - it must come from URL/request
     const token = tokenData as {
       userId?: string;
-      companyId?: string;
-      company_id?: string; // Some APIs use snake_case
       experienceId?: string;
       experience_id?: string;
       email?: string;
@@ -71,12 +68,10 @@ export async function verifyWhopUser(): Promise<WhopUser | null> {
     };
 
     const userId = token.userId;
-    // Try both companyId and company_id (some APIs use snake_case)
-    let companyId = token.companyId || token.company_id;
     const email = token.email;
     const appId = token.appId || token.app_id;
     const experienceId = token.experienceId || token.experience_id;
-    const { userId: _, companyId: __, company_id: ___, email: ____, appId: _____, app_id: ______, experienceId: _______, experience_id: ________, ...rest } = token;
+    const { userId: _, email: __, appId: ___, app_id: ____, experienceId: _____, experience_id: ______, ...rest } = token;
 
     if (!userId) {
       console.warn("[whopAuth] Token validated but missing userId", { 
@@ -86,29 +81,8 @@ export async function verifyWhopUser(): Promise<WhopUser | null> {
       return null;
     }
 
-    // Fallback companyId strategy: use env var if token doesn't have it
-    if (!companyId && env.WHOP_FALLBACK_COMPANY_ID) {
-      companyId = env.WHOP_FALLBACK_COMPANY_ID;
-      console.log("[whopAuth] Using fallback companyId from env", {
-        fallbackCompanyId: companyId,
-        note: "Token contained no companyId",
-        tokenKeys: Object.keys(token),
-      });
-    }
-
-    // Log if companyId is still missing - this is important for product creation
-    if (!companyId) {
-      console.warn("[whopAuth] ⚠️ Token validated but companyId is missing and no fallback configured", {
-        userId,
-        tokenKeys: Object.keys(token),
-        hasFallback: !!env.WHOP_FALLBACK_COMPANY_ID,
-        note: "This may cause issues with Whop product creation",
-      });
-    }
-
     return {
       userId,
-      companyId,
       email,
       appId,
       experienceId,
