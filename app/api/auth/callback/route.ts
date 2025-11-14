@@ -29,13 +29,19 @@ type WhopProductResponse = {
 };
 
 async function exchangeCodeForTokens(code: string): Promise<WhopTokenResponse> {
+  // Try Basic Auth first (some OAuth implementations require this)
+  const basicAuth = Buffer.from(
+    `${env.WHOP_CLIENT_ID}:${env.WHOP_CLIENT_SECRET}`
+  ).toString("base64");
+
   const response = await fetch("https://api.whop.com/api/v2/oauth/token", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Basic ${basicAuth}`,
+    },
     body: JSON.stringify({
       grant_type: "authorization_code",
-      client_id: env.WHOP_CLIENT_ID,
-      client_secret: env.WHOP_CLIENT_SECRET,
       code,
       redirect_uri: env.NEXT_PUBLIC_WHOP_REDIRECT_URL,
     }),
@@ -43,8 +49,19 @@ async function exchangeCodeForTokens(code: string): Promise<WhopTokenResponse> {
 
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => null);
+    const errorText = await response.text().catch(() => null);
+    console.error("[OAuth Callback] Token exchange error details", {
+      status: response.status,
+      statusText: response.statusText,
+      errorPayload,
+      errorText,
+      hasClientId: !!env.WHOP_CLIENT_ID,
+      hasClientSecret: !!env.WHOP_CLIENT_SECRET,
+      clientIdLength: env.WHOP_CLIENT_ID?.length,
+      clientSecretLength: env.WHOP_CLIENT_SECRET?.length,
+    });
     throw new Error(
-      `Token exchange failed (${response.status}): ${JSON.stringify(errorPayload)}`
+      `Token exchange failed (${response.status}): ${JSON.stringify(errorPayload || errorText)}`
     );
   }
 
