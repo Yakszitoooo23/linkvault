@@ -44,9 +44,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Log authenticated user with warning if companyId is missing
+    if (!whopUser.companyId) {
+      console.warn("[create-with-plan] ⚠️ Warning: companyId is undefined. This will likely break Whop product creation.");
+    }
+    
     console.log("[create-with-plan] Authenticated user", {
       userId: whopUser.userId,
       companyId: whopUser.companyId,
+      hasCompanyId: !!whopUser.companyId,
     });
 
     // Parse request body
@@ -115,6 +121,23 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      // Safe debug log: mask API key (first 6 chars + ***)
+      const maskedApiKey = appApiKey.length >= 6 
+        ? `${appApiKey.substring(0, 6)}***` 
+        : "***";
+      console.log("[create-with-plan] Using WHOP_API_KEY", {
+        isDefined: true,
+        length: appApiKey.length,
+        masked: maskedApiKey,
+        companyId: whopUser.companyId,
+        hasCompanyId: !!whopUser.companyId,
+      });
+
+      // Warn if companyId is missing - this might cause 401
+      if (!whopUser.companyId) {
+        console.warn("[create-with-plan] ⚠️ CRITICAL: companyId is undefined. Whop API may require company_id for product creation.");
+      }
+
       try {
         whopProductId = await createWhopProduct({
           apiKey: appApiKey,
@@ -137,17 +160,34 @@ export async function POST(req: NextRequest) {
 
         console.log("[create-with-plan] Whop product created", { whopProductId });
       } catch (productError) {
+        // Enhanced error logging with all relevant details
+        const errorMessage = productError instanceof Error ? productError.message : String(productError);
+        const is401 = errorMessage.includes("401");
+        
         console.error("[create-with-plan] Failed to create Whop product", {
-          error: productError instanceof Error ? productError.message : String(productError),
+          error: errorMessage,
+          httpStatus: is401 ? 401 : "unknown",
+          companyId: whopUser.companyId,
+          hasCompanyId: !!whopUser.companyId,
+          companyIdType: typeof whopUser.companyId,
+          apiKeyDefined: !!appApiKey,
+          apiKeyLength: appApiKey?.length || 0,
         });
 
         // Check if it's a permissions error
-        if (productError instanceof Error && productError.message.includes("401")) {
+        if (is401) {
           return NextResponse.json(
             {
-              error: "Missing app permissions",
-              details: "The app API key doesn't have permission to create products. Please add 'products:create' permission in Whop dashboard.",
-              hint: "Go to Whop Developer Dashboard → Your App → Permissions → Add 'products:create'",
+              error: "Missing app permissions or invalid request",
+              details: "The app API key doesn't have permission to create products, or the request is missing required fields (e.g., company_id).",
+              hint: "1. Add 'products:create' permission in Whop dashboard. 2. Ensure companyId is available in the iframe token.",
+              troubleshooting: {
+                companyId: whopUser.companyId || "MISSING - This may be the issue",
+                hasApiKey: !!appApiKey,
+                suggestion: whopUser.companyId 
+                  ? "Check app permissions in Whop dashboard"
+                  : "companyId is missing from token - check if user has a company",
+              },
             },
             { status: 403 }
           );
@@ -156,7 +196,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             error: "Failed to create Whop product",
-            details: productError instanceof Error ? productError.message : "Unknown error",
+            details: errorMessage,
           },
           { status: 500 }
         );
@@ -288,6 +328,9 @@ async function getOrCreateCompany(whopCompanyId: string): Promise<string> {
 
 /**
  * Create a Whop product using App API Key
+ * 
+ * IMPORTANT: According to Whop API docs, products may require company_id.
+ * If companyId is undefined, the request may fail with 401.
  */
 async function createWhopProduct({
   apiKey,
@@ -298,17 +341,43 @@ async function createWhopProduct({
   companyId?: string;
   name: string;
 }): Promise<string> {
+  const endpoint = "https://api.whop.com/api/v2/products";
+  
   const body: Record<string, unknown> = {
     name,
     visibility: "hidden",
   };
 
   // Add company_id if available
+  // NOTE: Whop API may require company_id for product creation
   if (companyId) {
     body.company_id = companyId;
+    console.log("[createWhopProduct] Including company_id in request", {
+      companyId,
+      companyIdType: typeof companyId,
+      companyIdLength: companyId.length,
+    });
+  } else {
+    console.warn("[createWhopProduct] ⚠️ company_id is missing from request body. Whop API may reject this.");
   }
 
-  const response = await fetch("https://api.whop.com/api/v2/products", {
+  // Log request details (safe - no full API key)
+  const maskedApiKey = apiKey.length >= 6 ? `${apiKey.substring(0, 6)}***` : "***";
+  console.log("[createWhopProduct] Making request to Whop API", {
+    endpoint,
+    method: "POST",
+    hasCompanyId: !!companyId,
+    companyId: companyId || "undefined",
+    apiKeyMasked: maskedApiKey,
+    apiKeyLength: apiKey.length,
+    requestBody: {
+      name,
+      visibility: "hidden",
+      company_id: companyId || "NOT INCLUDED",
+    },
+  });
+
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -325,10 +394,21 @@ async function createWhopProduct({
     payload = responseText;
   }
 
+  // Enhanced error logging
   if (!response.ok) {
     const errorMessage = typeof payload === "object" && payload !== null && "error" in payload
       ? JSON.stringify(payload)
       : responseText;
+    
+    console.error("[createWhopProduct] Whop API error response", {
+      status: response.status,
+      statusText: response.statusText,
+      responseBody: payload,
+      companyIdUsed: companyId || "undefined",
+      hasCompanyId: !!companyId,
+      endpoint,
+      requestBody: body,
+    });
     
     throw new Error(
       `Failed to create Whop product (${response.status}): ${errorMessage}`
@@ -342,6 +422,11 @@ async function createWhopProduct({
   if (!product?.id) {
     throw new Error(`Whop product creation response missing id: ${JSON.stringify(payload)}`);
   }
+
+  console.log("[createWhopProduct] Product created successfully", {
+    productId: product.id,
+    companyIdUsed: companyId || "none",
+  });
 
   return product.id;
 }

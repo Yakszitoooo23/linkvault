@@ -28,17 +28,38 @@ export async function verifyWhopUser(): Promise<WhopUser | null> {
     }
 
     // Extract user info from token
-    const { userId, companyId, email, appId, ...rest } = tokenData as {
+    // NOTE: companyId might be in different fields - check common variations
+    const token = tokenData as {
       userId?: string;
       companyId?: string;
+      company_id?: string; // Some APIs use snake_case
       email?: string;
       appId?: string;
       [key: string]: unknown;
     };
 
+    const userId = token.userId;
+    // Try both companyId and company_id (some APIs use snake_case)
+    const companyId = token.companyId || token.company_id;
+    const email = token.email;
+    const appId = token.appId;
+    const { userId: _, companyId: __, company_id: ___, email: ____, appId: _____, ...rest } = token;
+
     if (!userId) {
-      console.warn("[whopAuth] Token validated but missing userId", { tokenData });
+      console.warn("[whopAuth] Token validated but missing userId", { 
+        tokenKeys: Object.keys(token),
+        tokenData,
+      });
       return null;
+    }
+
+    // Log if companyId is missing - this is important for product creation
+    if (!companyId) {
+      console.warn("[whopAuth] ⚠️ Token validated but companyId is missing", {
+        userId,
+        tokenKeys: Object.keys(token),
+        note: "This may cause issues with Whop product creation",
+      });
     }
 
     return {
