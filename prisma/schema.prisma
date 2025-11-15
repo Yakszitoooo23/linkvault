@@ -52,6 +52,8 @@ model Product {
   imageUrl    String?    @db.VarChar(1024)
   whopPlanId  String?    @db.VarChar(191)
   planId      String?
+  whopCheckoutConfigurationId String? @db.VarChar(191)
+  whopPurchaseUrl            String? @db.VarChar(1024)
   version     Int        @default(1)
   isActive    Boolean    @default(true)
   createdAt   DateTime   @default(now())

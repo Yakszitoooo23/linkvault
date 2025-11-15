@@ -21,6 +21,7 @@ export async function GET(
         priceCents: true,
         imageKey: true,
         imageUrl: true,
+        whopPurchaseUrl: true,
         createdAt: true,
         isActive: true,
       },

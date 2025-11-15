@@ -203,3 +203,124 @@ export async function createCompanyCheckoutConfiguration({
 
   return config.id;
 }
+
+/**
+ * Create a Whop checkout configuration with an inline plan for a LinkVault product.
+ * Uses App API Key (WHOP_API_KEY) and creates the plan inline in the checkout configuration.
+ * 
+ * Required permissions: checkout_configuration:create, plan:create, access_pass:create, access_pass:update
+ */
+export type CreateCheckoutConfigParams = {
+  companyId: string;        // biz_xxx
+  priceCents: number;
+  currency: string;         // "USD"
+  productId: string;        // LinkVault product ID
+  whopUserId: string;       // creator's whopUserId
+  creatorUserId: string;    // our internal User.id
+};
+
+export async function createCheckoutConfigurationForProduct(
+  params: CreateCheckoutConfigParams
+): Promise<{
+  checkoutConfigId: string;
+  planId: string;
+  purchaseUrl: string;
+  raw: unknown;
+}> {
+  const { companyId, priceCents, currency, productId, whopUserId, creatorUserId } = params;
+
+  const appApiKey = env.WHOP_API_KEY;
+  if (!appApiKey) {
+    throw new Error("WHOP_API_KEY is not configured");
+  }
+
+  const endpoint = "https://api.whop.com/checkout_configurations";
+
+  const body: Record<string, unknown> = {
+    plan: {
+      company_id: companyId,
+      plan_type: "one_time",
+      // Whop expects dollars, we store cents:
+      initial_price: priceCents / 100,
+      currency: currency.toLowerCase(), // e.g. "usd"
+      release_method: "buy_now",
+      visibility: "hidden",
+    },
+    metadata: {
+      productId,
+      linkvault_product_id: productId,
+      whop_user_id: whopUserId,
+      creator_user_id: creatorUserId,
+    },
+  };
+
+  // Optional: if we have a public app URL env, we can use it.
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    body.redirect_url = `${process.env.NEXT_PUBLIC_APP_URL}/products/${productId}/success`;
+  }
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${appApiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const responseText = await res.text();
+  if (!res.ok) {
+    console.error("[createCheckoutConfigurationForProduct] Whop error", {
+      status: res.status,
+      statusText: res.statusText,
+      body: responseText,
+      companyId,
+    });
+    throw new Error(
+      `Failed to create Whop checkout configuration (${res.status}): ${responseText}`
+    );
+  }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(responseText);
+  } catch {
+    console.error("[createCheckoutConfigurationForProduct] Failed to parse JSON", {
+      responseText,
+    });
+    throw new Error("Invalid JSON from Whop checkout_configurations endpoint");
+  }
+
+  // According to Whop docs, response includes:
+  // - id (checkout configuration id)
+  // - plan (with id)
+  // - purchase_url
+  const response = json as {
+    id?: string;
+    plan?: { id?: string };
+    purchase_url?: string;
+  };
+
+  const checkoutConfigId = response.id;
+  const planId = response?.plan?.id;
+  const purchaseUrl = response.purchase_url;
+
+  if (!checkoutConfigId || !planId || !purchaseUrl) {
+    console.warn("[createCheckoutConfigurationForProduct] Missing expected fields", {
+      checkoutConfigId,
+      planId,
+      purchaseUrl,
+      json,
+    });
+    throw new Error(
+      "Whop checkout configuration response missing required fields (id, plan.id, purchase_url)"
+    );
+  }
+
+  return {
+    checkoutConfigId,
+    planId,
+    purchaseUrl,
+    raw: json,
+  };
+}

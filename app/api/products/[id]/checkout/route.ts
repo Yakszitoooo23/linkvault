@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-
 import { prisma } from "@/lib/db";
-import {
-  WhopApiError,
-  ensureCompanyAccessToken,
-  createCompanyPlan,
-  createCompanyCheckoutConfiguration,
-} from "@/lib/whop";
 
 type RouteParams = {
   id: string;
 };
 
+/**
+ * Returns the Whop purchase URL for a product (if available)
+ * 
+ * DEPRECATED: New products should use whopPurchaseUrl directly from the Product model.
+ * This route is kept for backward compatibility with legacy products.
+ */
 export async function POST(req: NextRequest, { params }: { params: RouteParams }) {
   try {
     const productId = params.id;
@@ -22,8 +21,10 @@ export async function POST(req: NextRequest, { params }: { params: RouteParams }
 
     const product = await prisma.product.findUnique({
       where: { id: productId },
-      include: {
-        company: true,
+      select: {
+        id: true,
+        isActive: true,
+        whopPurchaseUrl: true,
       },
     });
 
@@ -31,84 +32,32 @@ export async function POST(req: NextRequest, { params }: { params: RouteParams }
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    if (!product.company) {
-      return NextResponse.json(
-        { error: "Product is not associated with a Whop company" },
-        { status: 400 }
-      );
+    if (!product.isActive) {
+      return NextResponse.json({ error: "Product is not available" }, { status: 400 });
     }
 
-    const company = product.company;
-
-    if (!company.whopProductId) {
-      return NextResponse.json(
-        { error: "Company is not configured with a Whop product" },
-        { status: 400 }
-      );
+    // Prefer whopPurchaseUrl (new flow)
+    if (product.whopPurchaseUrl) {
+      return NextResponse.json({ checkoutUrl: product.whopPurchaseUrl }, { status: 200 });
     }
 
-    const accessToken = await ensureCompanyAccessToken({
-      id: company.id,
-      whopAccessToken: company.whopAccessToken,
-      whopRefreshToken: company.whopRefreshToken,
-      tokenExpiresAt: company.tokenExpiresAt,
-    });
-
-    let planId = product.planId ?? undefined;
-
-    if (!planId) {
-      planId = await createCompanyPlan({
-        accessToken,
-        whopProductId: company.whopProductId,
-        priceCents: product.priceCents,
-        currency: product.currency.toLowerCase(),
-        metadata: {
-          linkVaultProductId: product.id,
-          companyId: company.whopCompanyId,
-        },
-      });
-
-      await prisma.product.update({
-        where: { id: product.id },
-        data: { planId },
-      });
-    }
-
-    const refererUrl = req.headers.get("referer");
-    const fallbackUrl = `${req.nextUrl.origin}/product/${product.id}`;
-    const redirectUrl = refererUrl ?? fallbackUrl;
-
-    const checkoutConfigId = await createCompanyCheckoutConfiguration({
-      accessToken,
-      planId,
-      successUrl: redirectUrl,
-      cancelUrl: redirectUrl,
-      metadata: {
-        productId: product.id,
-        companyId: company.whopCompanyId,
+    // Fallback: Legacy products without whopPurchaseUrl
+    return NextResponse.json(
+      {
+        error: "Product does not have a checkout URL configured",
+        details: "This product was created before checkout configuration was implemented. Please recreate the product or contact support.",
       },
-    });
-
-    return NextResponse.json({
-      checkoutConfigId,
-      planId,
-    });
+      { status: 400 }
+    );
   } catch (error) {
-    console.error("Product checkout configuration error:", error);
-
-    if (error instanceof WhopApiError) {
-      return NextResponse.json(
-        { error: error.message, details: error.details },
-        { status: error.status }
-      );
-    }
+    console.error("Product checkout error:", error);
 
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json(
-      { error: "Unexpected error creating checkout configuration" },
+      { error: "Unexpected error getting checkout URL" },
       { status: 500 }
     );
   }

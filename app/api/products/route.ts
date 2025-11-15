@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
           planId: true,
           imageKey: true,
           imageUrl: true,
+          whopPurchaseUrl: true,
           createdAt: true,
         },
       });
@@ -59,6 +60,7 @@ export async function GET(req: NextRequest) {
         planId: true,
         imageKey: true,
         imageUrl: true,
+        whopPurchaseUrl: true,
         createdAt: true,
       },
     });
