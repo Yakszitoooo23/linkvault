@@ -24,6 +24,7 @@ export default function ProductPage() {
 
   const [product, setProduct] = useState<Product | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' | 'info' }>({
     show: false,
     message: '',
@@ -56,21 +57,46 @@ export default function ProductPage() {
     }
   }, [productId]);
 
-  const handleBuyNow = () => {
+  const handleBuyNow = async () => {
     if (!product) return;
 
-    // Use whopPurchaseUrl directly if available
+    // If we already have whopPurchaseUrl, use it directly
     if (product.whopPurchaseUrl) {
       window.location.href = product.whopPurchaseUrl;
       return;
     }
 
-    // Fallback: Show error if checkout URL is missing
-    setToast({
-      show: true,
-      message: 'Checkout URL not configured. Please recreate the product or contact support.',
-      type: 'error',
-    });
+    // Otherwise, call the checkout endpoint to create/get checkout URL
+    setIsCheckingOut(true);
+    try {
+      const response = await fetch(`/api/products/${product.id}/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.details || 'Failed to create checkout');
+      }
+
+      const data = await response.json();
+      
+      if (data.checkoutUrl) {
+        // Redirect to checkout
+        window.location.href = data.checkoutUrl;
+      } else {
+        throw new Error('No checkout URL received');
+      }
+    } catch (error) {
+      console.error('Checkout error:', error);
+      setToast({
+        show: true,
+        message: error instanceof Error ? error.message : 'Failed to start checkout',
+        type: 'error',
+      });
+    } finally {
+      setIsCheckingOut(false);
+    }
   };
 
   const formatPrice = (cents: number) => {
@@ -153,19 +179,15 @@ export default function ProductPage() {
               )}
 
               <div className="product-detail-actions">
-                {!product.whopPurchaseUrl && (
-                  <div className="dashboard-error" role="alert" style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#fee', border: '1px solid #fcc', borderRadius: '4px' }}>
-                    <strong>Checkout not configured.</strong> This product does not have a checkout URL. Please recreate the product or contact support.
-                  </div>
-                )}
                 <Button
                   variant="primary"
                   onClick={handleBuyNow}
-                  disabled={!product.whopPurchaseUrl}
+                  disabled={isCheckingOut}
+                  aria-busy={isCheckingOut}
                   role="button"
                   className="buy-now-btn"
                 >
-                  Buy Now
+                  {isCheckingOut ? 'Processing...' : 'Buy Now'}
                 </Button>
               </div>
             </div>

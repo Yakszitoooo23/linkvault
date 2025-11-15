@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -33,7 +33,7 @@ interface CreateProductFormProps {
   companyId: string | undefined;
 }
 
-export function CreateProductForm({ companyId }: CreateProductFormProps) {
+export function CreateProductForm({ companyId: companyIdFromUrl }: CreateProductFormProps) {
   const router = useRouter();
   const [formData, setFormData] = useState<FormData>({
     name: '',
@@ -46,9 +46,58 @@ export function CreateProductForm({ companyId }: CreateProductFormProps) {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [digitalFile, setDigitalFile] = useState<File | null>(null);
   const [toast, setToast] = useState<ToastState>({ show: false, message: '', type: 'success' });
+  const [resolvedCompanyId, setResolvedCompanyId] = useState<string | null>(companyIdFromUrl || null);
+  const [isLoadingCompanyId, setIsLoadingCompanyId] = useState(!companyIdFromUrl);
+  const [companyIdError, setCompanyIdError] = useState<string | null>(null);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const digitalInputRef = useRef<HTMLInputElement>(null);
+
+  // Infer companyId from logged-in user if not in URL
+  useEffect(() => {
+    // If companyId is already in URL, use it
+    if (companyIdFromUrl) {
+      setResolvedCompanyId(companyIdFromUrl);
+      setIsLoadingCompanyId(false);
+      return;
+    }
+
+    // Otherwise, try to get it from /api/me/company
+    const fetchCompanyId = async () => {
+      try {
+        setIsLoadingCompanyId(true);
+        setCompanyIdError(null);
+
+        const response = await fetch('/api/me/company');
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          setCompanyIdError(
+            errorData.details || errorData.error || 'Failed to get company ID'
+          );
+          setResolvedCompanyId(null);
+          return;
+        }
+
+        const data = await response.json();
+        if (data.companyId) {
+          setResolvedCompanyId(data.companyId);
+          console.log('[CreateProductForm] Resolved companyId from API:', data.companyId);
+        } else {
+          setCompanyIdError('No company ID returned from server');
+          setResolvedCompanyId(null);
+        }
+      } catch (error) {
+        console.error('[CreateProductForm] Error fetching company ID:', error);
+        setCompanyIdError('Failed to fetch company ID. Please try again.');
+        setResolvedCompanyId(null);
+      } finally {
+        setIsLoadingCompanyId(false);
+      }
+    };
+
+    fetchCompanyId();
+  }, [companyIdFromUrl]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -153,11 +202,14 @@ export function CreateProductForm({ companyId }: CreateProductFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Use resolved companyId (from URL or API)
+    const companyIdToUse = resolvedCompanyId;
+    
     // Prevent submission if companyId is missing
-    if (!companyId) {
+    if (!companyIdToUse) {
       setToast({
         show: true,
-        message: 'Missing companyId. Please open this page from the Whop dashboard.',
+        message: 'Missing companyId. Please open this page from the Whop dashboard or ensure your account is linked to a company.',
         type: 'error',
       });
       return;
@@ -211,7 +263,7 @@ export function CreateProductForm({ companyId }: CreateProductFormProps) {
       }
 
       // Log before submitting
-      console.log("[CreateProductForm] Submitting product with companyId:", companyId);
+      console.log("[CreateProductForm] Submitting product with companyId:", companyIdToUse);
       
       const requestBody = {
         title: formData.name.trim(),
@@ -221,7 +273,7 @@ export function CreateProductForm({ companyId }: CreateProductFormProps) {
         fileKey,
         imageKey,
         imageUrl: finalImageUrl,
-        companyId, // Include companyId from URL
+        companyId: companyIdToUse, // Include companyId (from URL or API)
       };
       
       console.log("[CreateProductForm] Request body:", {
@@ -286,13 +338,21 @@ export function CreateProductForm({ companyId }: CreateProductFormProps) {
                      formData.description.trim() && 
                      digitalFile;
   
-  const canSubmit = isFormValid && companyId && !isSubmitting;
+  const canSubmit = isFormValid && resolvedCompanyId && !isSubmitting && !isLoadingCompanyId;
+
+  // Show error only if both URL and API failed
+  const showCompanyIdError = !companyIdFromUrl && !resolvedCompanyId && !isLoadingCompanyId && companyIdError;
 
   return (
     <div>
-      {!companyId && (
+      {isLoadingCompanyId && (
+        <div className="dashboard-error" role="alert" style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#eef', border: '1px solid #ccf', borderRadius: '4px' }}>
+          <strong>Loading company information...</strong>
+        </div>
+      )}
+      {showCompanyIdError && (
         <div className="dashboard-error" role="alert" style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#fee', border: '1px solid #fcc', borderRadius: '4px' }}>
-          <strong>Missing companyId.</strong> Please open this page from the Whop dashboard.
+          <strong>Missing companyId.</strong> {companyIdError || 'Please open this page from the Whop dashboard or ensure your account is linked to a company.'}
         </div>
       )}
       
