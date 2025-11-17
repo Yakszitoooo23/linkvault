@@ -25,11 +25,6 @@ export default function ProductPage() {
   const [product, setProduct] = useState<Product | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
-  
-  // Debug: Log state changes
-  React.useEffect(() => {
-    console.log("[ProductPage] isCheckingOut state changed", { isCheckingOut });
-  }, [isCheckingOut]);
   const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' | 'info' }>({
     show: false,
     message: '',
@@ -63,35 +58,22 @@ export default function ProductPage() {
   }, [productId]);
 
   const handleBuyNow = async () => {
-    console.log("[ProductPage] Buy clicked", { productId: product?.id, product: product ? { id: product.id, title: product.title, hasPurchaseUrl: !!product.whopPurchaseUrl } : null });
-    
     if (!product) {
-      console.warn("[ProductPage] Buy clicked but product is null");
       return;
     }
 
     // If we already have whopPurchaseUrl, use it directly
     if (product.whopPurchaseUrl) {
-      console.log("[ProductPage] Using existing whopPurchaseUrl", { url: product.whopPurchaseUrl });
       window.location.href = product.whopPurchaseUrl;
       return;
     }
 
     // Otherwise, call the checkout endpoint to create/get checkout URL
-    console.log("[ProductPage] Calling checkout endpoint", { productId: product.id });
-    console.log("[ProductPage] Setting isCheckingOut to true");
     setIsCheckingOut(true);
-    console.log("[ProductPage] isCheckingOut should now be true");
     try {
       const response = await fetch(`/api/products/${product.id}/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-      });
-      
-      console.log("[ProductPage] Checkout response received", { 
-        ok: response.ok, 
-        status: response.status, 
-        statusText: response.statusText 
       });
 
       if (!response.ok) {
@@ -100,27 +82,22 @@ export default function ProductPage() {
       }
 
       const data = await response.json();
-      console.log("[ProductPage] Checkout response data", { hasCheckoutUrl: !!data.checkoutUrl, data });
       
       if (data.checkoutUrl) {
         // Redirect to checkout
-        console.log("[ProductPage] Redirecting to checkout", { checkoutUrl: data.checkoutUrl });
         window.location.href = data.checkoutUrl;
       } else {
-        console.error("[ProductPage] No checkout URL in response", { data });
         throw new Error('No checkout URL received');
       }
     } catch (error) {
-      console.error('[ProductPage] Checkout error:', error);
+      console.error('Checkout error:', error);
       setToast({
         show: true,
         message: error instanceof Error ? error.message : 'Failed to start checkout',
         type: 'error',
       });
     } finally {
-      console.log("[ProductPage] Setting isCheckingOut to false in finally block");
       setIsCheckingOut(false);
-      console.log("[ProductPage] isCheckingOut should now be false");
     }
   };
 
@@ -204,50 +181,14 @@ export default function ProductPage() {
               )}
 
               <div className="product-detail-actions">
-                {(() => {
-                  console.log("[ProductPage] Rendering Buy button", { 
-                    isCheckingOut, 
-                    productId: product?.id,
-                    hasProduct: !!product,
-                    buttonDisabled: isCheckingOut 
-                  });
-                  return null;
-                })()}
                 <Button
+                  type="button"
                   variant="primary"
-                  onClick={(e) => {
-                    console.log("[ProductPage] Button onClick fired", { 
-                      event: e, 
-                      type: e.type, 
-                      target: e.target,
-                      currentTarget: e.currentTarget,
-                      isCheckingOut,
-                      productId: product?.id 
-                    });
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleBuyNow();
-                  }}
-                  onMouseDown={(e) => {
-                    console.log("[ProductPage] Button onMouseDown fired", { 
-                      event: e,
-                      isCheckingOut,
-                      buttonDisabled: (e.currentTarget as HTMLButtonElement).disabled
-                    });
-                  }}
+                  onClick={handleBuyNow}
                   disabled={isCheckingOut}
-                  aria-busy={isCheckingOut}
-                  role="button"
                   className="buy-now-btn"
-                  data-checking-out={isCheckingOut}
-                  data-product-id={product?.id}
-                  style={{ 
-                    cursor: isCheckingOut ? 'not-allowed' : 'pointer',
-                    opacity: isCheckingOut ? 0.6 : 1,
-                    pointerEvents: isCheckingOut ? 'none' : 'auto'
-                  }}
                 >
-                  {isCheckingOut ? 'Processing...' : 'Buy Now'}
+                  {isCheckingOut ? 'Processing...' : 'Buy'}
                 </Button>
               </div>
             </div>
