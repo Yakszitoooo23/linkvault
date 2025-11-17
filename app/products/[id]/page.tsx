@@ -58,20 +58,33 @@ export default function ProductPage() {
   }, [productId]);
 
   const handleBuyNow = async () => {
-    if (!product) return;
+    console.log("[ProductPage] Buy clicked", { productId: product?.id, product: product ? { id: product.id, title: product.title, hasPurchaseUrl: !!product.whopPurchaseUrl } : null });
+    
+    if (!product) {
+      console.warn("[ProductPage] Buy clicked but product is null");
+      return;
+    }
 
     // If we already have whopPurchaseUrl, use it directly
     if (product.whopPurchaseUrl) {
+      console.log("[ProductPage] Using existing whopPurchaseUrl", { url: product.whopPurchaseUrl });
       window.location.href = product.whopPurchaseUrl;
       return;
     }
 
     // Otherwise, call the checkout endpoint to create/get checkout URL
+    console.log("[ProductPage] Calling checkout endpoint", { productId: product.id });
     setIsCheckingOut(true);
     try {
       const response = await fetch(`/api/products/${product.id}/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+      });
+      
+      console.log("[ProductPage] Checkout response received", { 
+        ok: response.ok, 
+        status: response.status, 
+        statusText: response.statusText 
       });
 
       if (!response.ok) {
@@ -80,11 +93,14 @@ export default function ProductPage() {
       }
 
       const data = await response.json();
+      console.log("[ProductPage] Checkout response data", { hasCheckoutUrl: !!data.checkoutUrl, data });
       
       if (data.checkoutUrl) {
         // Redirect to checkout
+        console.log("[ProductPage] Redirecting to checkout", { checkoutUrl: data.checkoutUrl });
         window.location.href = data.checkoutUrl;
       } else {
+        console.error("[ProductPage] No checkout URL in response", { data });
         throw new Error('No checkout URL received');
       }
     } catch (error) {
@@ -181,7 +197,22 @@ export default function ProductPage() {
               <div className="product-detail-actions">
                 <Button
                   variant="primary"
-                  onClick={handleBuyNow}
+                  onClick={(e) => {
+                    console.log("[ProductPage] Button onClick fired", { 
+                      event: e, 
+                      type: e.type, 
+                      target: e.target,
+                      currentTarget: e.currentTarget,
+                      isCheckingOut,
+                      productId: product?.id 
+                    });
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleBuyNow();
+                  }}
+                  onMouseDown={(e) => {
+                    console.log("[ProductPage] Button onMouseDown fired", { event: e });
+                  }}
                   disabled={isCheckingOut}
                   aria-busy={isCheckingOut}
                   role="button"
