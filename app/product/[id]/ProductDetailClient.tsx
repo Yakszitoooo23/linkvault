@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
 import { ArrowLeftIcon } from "@/components/ui/Icon";
-import { useWhopIframeSdk } from "@/components/providers/WhopProvider";
 
 interface Product {
   id: string;
@@ -25,9 +24,7 @@ interface ProductDetailClientProps {
 
 export function ProductDetailClient({ product }: ProductDetailClientProps) {
   const router = useRouter();
-  const iframeSdk = useWhopIframeSdk();
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [toast, setToast] = useState<{
     show: boolean;
     message: string;
@@ -38,60 +35,89 @@ export function ProductDetailClient({ product }: ProductDetailClientProps) {
     type: "success",
   });
 
-  const planReady = useMemo(() => Boolean(product.planId), [product.planId]);
-
-  const handleBuyClick = async (event?: React.MouseEvent) => {
-    event?.preventDefault();
-    if (isLoading) return;
-
-    if (!planReady || !product.planId) {
-      setError("This product is not configured for purchase yet. Please contact the creator.");
-      setToast({
-        show: true,
-        message: "This product is not ready for checkout. Please try again later.",
-        type: "error",
-      });
+  const handleBuyNow = async () => {
+    if (!product) {
+      console.warn("[ProductDetailClient] Buy clicked but product is missing");
       return;
     }
 
-    if (!iframeSdk) {
-      setError("Checkout SDK is not available.");
-      setToast({
-        show: true,
-        message: "Checkout is currently unavailable. Please refresh and try again.",
-        type: "error",
-      });
+    if (isCheckingOut) {
+      console.log("[ProductDetailClient] Already checking out, ignoring click");
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
+    console.log("[ProductDetailClient] Buy clicked", { productId: product.id });
+
+    setIsCheckingOut(true);
 
     try {
-      const result = await iframeSdk.inAppPurchase({ planId: product.planId });
+      const response = await fetch(`/api/products/${product.id}/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
 
-      if (result.status === "ok") {
+      console.log("[ProductDetailClient] Checkout response received", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+      });
+
+      if (!response.ok) {
+        let errorMessage = "Something went wrong while starting checkout";
+        
+        try {
+          const errorData = await response.json();
+          if (errorData && typeof errorData === "object" && "error" in errorData) {
+            errorMessage = String(errorData.error);
+          } else if (typeof errorData === "string") {
+            errorMessage = errorData;
+          }
+        } catch {
+          // If JSON parsing fails, use default message
+        }
+
+        console.error("[ProductDetailClient] Checkout API error", {
+          status: response.status,
+          errorMessage,
+        });
+
         setToast({
           show: true,
-          message: "Purchase successful! You now have access to this product.",
-          type: "success",
+          message: errorMessage,
+          type: "error",
         });
-      } else {
-        const message =
-          (result as { error?: string }).error ?? "Checkout was cancelled or failed.";
-        throw new Error(message);
+        return;
       }
-    } catch (err) {
-      console.error("Whop in-app purchase error:", err);
-      const message = err instanceof Error ? err.message : "Checkout failed";
-      setError(message);
+
+      const data = await response.json();
+      console.log("[ProductDetailClient] Checkout response data", {
+        hasCheckoutUrl: !!data.checkoutUrl,
+        data,
+      });
+
+      if (data.checkoutUrl) {
+        console.log("[ProductDetailClient] Redirecting to checkout", {
+          checkoutUrl: data.checkoutUrl,
+        });
+        window.location.href = data.checkoutUrl;
+      } else {
+        console.error("[ProductDetailClient] No checkout URL in response", { data });
+        setToast({
+          show: true,
+          message: "Something went wrong while starting checkout",
+          type: "error",
+        });
+      }
+    } catch (error) {
+      console.error("[ProductDetailClient] Checkout error:", error);
       setToast({
         show: true,
-        message,
+        message: "Something went wrong while starting checkout",
         type: "error",
       });
     } finally {
-      setIsLoading(false);
+      setIsCheckingOut(false);
     }
   };
 
@@ -181,19 +207,14 @@ export function ProductDetailClient({ product }: ProductDetailClientProps) {
               )}
 
               <div className="product-detail-actions">
-                {error && (
-                  <div className="form-error" role="alert" style={{ marginBottom: "1rem" }}>
-                    {error}
-                  </div>
-                )}
                 <Button
+                  type="button"
                   variant="primary"
-                  onClick={handleBuyClick}
-                  disabled={isLoading || !planReady}
-                  aria-busy={isLoading}
+                  onClick={handleBuyNow}
+                  disabled={isCheckingOut}
                   className="buy-now-btn"
                 >
-                  {isLoading ? "Processing..." : "Buy"}
+                  {isCheckingOut ? "Processing..." : "Buy"}
                 </Button>
               </div>
             </div>
