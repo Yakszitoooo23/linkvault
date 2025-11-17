@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getAppApiKey } from "@/lib/whopAuth";
-import { createCheckoutConfigurationForProduct, createCompanyPlan } from "@/lib/whop";
+import { createCheckoutConfigurationForProduct } from "@/lib/whop";
 
 type RouteParams = {
   id: string;
@@ -70,171 +69,73 @@ export async function POST(req: NextRequest, { params }: { params: RouteParams }
     const company = product.company;
     const companyId = company.whopCompanyId;
 
-    // Determine origin for redirect URLs
-    const origin = req.nextUrl.origin;
-    const successUrl = `${origin}/products/${product.id}/success`;
-    const cancelUrl = `${origin}/products/${product.id}`;
+    console.log("[checkout] Starting checkout for product", {
+      productId: product.id,
+      companyId: companyId || "MISSING",
+      hasCompanyId: !!companyId,
+      hasWhopPurchaseUrl: !!product.whopPurchaseUrl,
+      hasPlanId: !!product.planId,
+      priceCents: product.priceCents,
+      currency: product.currency,
+    });
 
-    let planId = product.planId;
-
-    // If planId is missing, create a new plan
-    if (!planId) {
-      console.log("[checkout] Product missing planId, creating new plan", {
-        productId: product.id,
-        companyId,
-      });
-
-      // Try to use App API Key first (preferred for new flow)
-      const appApiKey = getAppApiKey();
-      
-      if (appApiKey && company.whopProductId) {
-        // Use createCompanyPlan with App API Key (requires whopProductId)
-        try {
-          planId = await createCompanyPlan({
-            accessToken: appApiKey,
-            whopProductId: company.whopProductId,
-            priceCents: product.priceCents,
-            currency: product.currency.toLowerCase(),
-            releaseMethod: "buy_now",
-            visibility: "hidden",
-            metadata: {
-              linkVaultProductId: product.id,
-              companyId: company.whopCompanyId,
-            },
-          });
-
-          // Save planId to product
-          await prisma.product.update({
-            where: { id: product.id },
-            data: { planId },
-          });
-
-          console.log("[checkout] Created plan using App API Key", { planId });
-        } catch (planError) {
-          console.error("[checkout] Failed to create plan with App API Key", planError);
-          // Fall through to try OAuth token or checkout config with inline plan
-        }
-      }
-
-      // If plan creation failed or we don't have whopProductId, use checkout config with inline plan
-      if (!planId) {
-        console.log("[checkout] Creating checkout configuration with inline plan", {
-          productId: product.id,
-          companyId,
-        });
-
-        if (!product.user) {
-          return NextResponse.json(
-            { error: "Product creator information is missing" },
-            { status: 500 }
-          );
-        }
-
-        const checkoutConfig = await createCheckoutConfigurationForProduct({
-          companyId,
-          priceCents: product.priceCents,
-          currency: product.currency,
-          productId: product.id,
-          whopUserId: product.user.whopUserId,
-          creatorUserId: product.user.id,
-        });
-
-        // Save checkout configuration details to product
-        await prisma.product.update({
-          where: { id: product.id },
-          data: {
-            planId: checkoutConfig.planId,
-            whopCheckoutConfigurationId: checkoutConfig.checkoutConfigId,
-            whopPurchaseUrl: checkoutConfig.purchaseUrl,
-          },
-        });
-
-        return NextResponse.json(
-          { checkoutUrl: checkoutConfig.purchaseUrl },
-          { status: 200 }
-        );
-      }
-    }
-
-    // If we have a planId, create checkout configuration using it
-    // This handles legacy products that have planId but no checkout config
-    if (planId && !product.whopCheckoutConfigurationId) {
-      console.log("[checkout] Creating checkout configuration for existing plan", {
-        productId: product.id,
-        planId,
-      });
-
-      const appApiKey = getAppApiKey();
-      if (!appApiKey) {
-        return NextResponse.json(
-          { error: "App API key not configured" },
-          { status: 500 }
-        );
-      }
-
-      // Create checkout configuration with the plan
-      const endpoint = "https://api.whop.com/checkout_configurations";
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${appApiKey}`,
-        },
-        body: JSON.stringify({
-          plan_id: planId,
-          redirect_url: successUrl,
-          metadata: {
-            productId: product.id,
-            companyId: company.whopCompanyId,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("[checkout] Failed to create checkout configuration", {
-          status: response.status,
-          error: errorText,
-        });
-        throw new Error(`Failed to create checkout configuration: ${errorText}`);
-      }
-
-      const configData = await response.json() as {
-        id?: string;
-        purchase_url?: string;
-      };
-
-      const checkoutConfigId = configData.id;
-      const purchaseUrl = configData.purchase_url;
-
-      if (!purchaseUrl) {
-        throw new Error("Checkout configuration response missing purchase_url");
-      }
-
-      // Save checkout configuration details
-      await prisma.product.update({
-        where: { id: product.id },
-        data: {
-          whopCheckoutConfigurationId: checkoutConfigId || null,
-          whopPurchaseUrl: purchaseUrl,
-        },
-      });
-
-      return NextResponse.json({ checkoutUrl: purchaseUrl }, { status: 200 });
-    }
-
-    // If we have whopPurchaseUrl, use it
+    // If product already has whopPurchaseUrl, use it
     if (product.whopPurchaseUrl) {
+      console.log("[checkout] Using existing whopPurchaseUrl", {
+        productId: product.id,
+        purchaseUrl: product.whopPurchaseUrl.substring(0, 50) + "...",
+      });
       return NextResponse.json({ checkoutUrl: product.whopPurchaseUrl }, { status: 200 });
     }
 
-    // Fallback: should not reach here, but handle gracefully
-    return NextResponse.json(
-      {
-        error: "Unable to create checkout",
-        details: "Product has planId but checkout configuration could not be created.",
+    // Always use checkout configuration with inline plan (simplified flow)
+    console.log("[checkout] Creating checkout configuration with inline plan", {
+      productId: product.id,
+      companyId,
+      priceCents: product.priceCents,
+      currency: product.currency,
+    });
+
+    if (!product.user) {
+      console.error("[checkout] Product creator information is missing", {
+        productId: product.id,
+      });
+      return NextResponse.json(
+        { error: "Product creator information is missing" },
+        { status: 500 }
+      );
+    }
+
+    const checkoutConfig = await createCheckoutConfigurationForProduct({
+      companyId,
+      priceCents: product.priceCents,
+      currency: product.currency,
+      productId: product.id,
+      productTitle: product.title,
+      whopUserId: product.user.whopUserId,
+      creatorUserId: product.user.id,
+    });
+
+    console.log("[checkout] Checkout configuration created successfully", {
+      productId: product.id,
+      checkoutConfigId: checkoutConfig.checkoutConfigId,
+      planId: checkoutConfig.planId,
+      hasPurchaseUrl: !!checkoutConfig.purchaseUrl,
+    });
+
+    // Save checkout configuration details to product
+    await prisma.product.update({
+      where: { id: product.id },
+      data: {
+        planId: checkoutConfig.planId,
+        whopCheckoutConfigurationId: checkoutConfig.checkoutConfigId,
+        whopPurchaseUrl: checkoutConfig.purchaseUrl,
       },
-      { status: 500 }
+    });
+
+    return NextResponse.json(
+      { checkoutUrl: checkoutConfig.purchaseUrl },
+      { status: 200 }
     );
   } catch (error) {
     console.error("[checkout] Error:", error);
