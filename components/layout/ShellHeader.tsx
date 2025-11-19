@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '../ui/Button';
-import { InfoIcon, LockIcon } from '../ui/Icon';
+import { LockIcon } from '../ui/Icon';
 
 export function ShellHeader() {
   const pathname = usePathname();
@@ -45,9 +45,6 @@ export function ShellHeader() {
 
           {/* Right side: Action icons */}
           <div className="header-right">
-            <Button variant="subtle" aria-label="Info">
-              <InfoIcon size={18} />
-            </Button>
           </div>
         </div>
       </div>
