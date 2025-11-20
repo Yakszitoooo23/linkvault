@@ -126,6 +126,15 @@ export async function createCompanyPlan({
   visibility?: "visible" | "hidden";
   metadata?: Record<string, unknown>;
 }): Promise<string> {
+  // Convert cents to dollars for Whop API
+  const amountInDollars = priceCents / 100;
+  
+  console.log("[createCompanyPlan] Price conversion", {
+    priceCents,
+    amountInDollars,
+    currency,
+  });
+
   const response = await fetch(`${WHOP_V5_API_BASE}/plans`, {
     method: "POST",
     headers: {
@@ -135,7 +144,7 @@ export async function createCompanyPlan({
     body: JSON.stringify({
       product_id: whopProductId,
       plan_type: "one_time",
-      initial_price: priceCents,
+      initial_price: amountInDollars,
       currency,
       release_method: releaseMethod,
       visibility,
@@ -235,8 +244,19 @@ export async function createCheckoutConfigurationForProduct(
     throw new Error("WHOP_API_KEY is not configured");
   }
 
+  // Convert cents to dollars for Whop API
+  const amountInDollars = priceCents / 100;
+  const currencyLower = (currency ?? "USD").toLowerCase();
+
   // Use the correct v1 endpoint as per Whop docs
   const endpoint = "https://api.whop.com/api/v1/checkout_configurations";
+
+  // Log price conversion for debugging
+  console.log("[createCheckoutConfigurationForProduct] price debug", {
+    priceCents,
+    amountInDollars,
+    currency: currencyLower,
+  });
 
   // Log request details
   console.log("[createCheckoutConfigurationForProduct] Creating checkout configuration", {
@@ -247,7 +267,7 @@ export async function createCheckoutConfigurationForProduct(
     hasProductId: !!productId,
     priceCents: priceCents || "MISSING",
     hasPriceCents: typeof priceCents === "number",
-    currency: currency || "MISSING",
+    currency: currencyLower || "MISSING",
   });
 
   // Build request body matching Whop docs format
@@ -257,8 +277,8 @@ export async function createCheckoutConfigurationForProduct(
       visibility: "visible",
       plan_type: "one_time",
       release_method: "buy_now",
-      currency: (currency ?? "USD").toLowerCase(),
-      initial_price: priceCents, // Using priceCents directly - verify if Whop expects cents or dollars
+      currency: currencyLower,
+      initial_price: amountInDollars,
     },
     metadata: {
       productId,

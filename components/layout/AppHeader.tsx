@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '../ui/Button';
-import { InfoIcon, UsersIcon, BellIcon, SearchIcon } from '../ui/Icon';
+import { UsersIcon, BellIcon, SearchIcon } from '../ui/Icon';
 
 export function AppHeader() {
   return (
@@ -19,9 +19,6 @@ export function AppHeader() {
 
         {/* Right side: Action icons */}
         <div className="header-right">
-          <Button variant="subtle" aria-label="Info">
-            <InfoIcon size={18} />
-          </Button>
           <Button variant="subtle" aria-label="Users">
             <UsersIcon size={18} />
           </Button>
